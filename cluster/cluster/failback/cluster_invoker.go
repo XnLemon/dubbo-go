@@ -52,7 +52,8 @@ type failbackClusterInvoker struct {
 	base.BaseClusterInvoker
 
 	once          sync.Once
-	ticker        *time.Ticker
+	stopOnce      sync.Once
+	stopCh        chan struct{}
 	maxRetries    int64
 	failbackTasks int64
 	taskList      *queue.Queue
@@ -61,6 +62,7 @@ type failbackClusterInvoker struct {
 func newFailbackClusterInvoker(directory directory.Directory) protocolbase.Invoker {
 	invoker := &failbackClusterInvoker{
 		BaseClusterInvoker: base.NewBaseClusterInvoker(directory),
+		stopCh:             make(chan struct{}),
 	}
 	retriesConfig := invoker.GetURL().GetParam(constant.RetriesKey, constant.DefaultFailbackTimes)
 	retries, err := strconv.Atoi(retriesConfig)
@@ -92,30 +94,37 @@ func (invoker *failbackClusterInvoker) tryTimerTaskProc(ctx context.Context, ret
 }
 
 func (invoker *failbackClusterInvoker) process(ctx context.Context) {
-	invoker.ticker = time.NewTicker(time.Second * 1)
-	for range invoker.ticker.C {
-		// check each timeout task and re-run
-		for {
-			value, err := invoker.taskList.Peek()
-			if err == queue.ErrDisposed {
-				return
-			}
-			if err == queue.ErrEmptyQueue {
-				break
-			}
+	ticker := time.NewTicker(time.Second * 1)
+	defer ticker.Stop()
 
-			retryTask := value.(*retryTimerTask)
-			// use exponential backoff calculated wait time instead of fixed 5 seconds
-			if time.Since(retryTask.lastT) < retryTask.nextBackoff {
-				break
-			}
+	for {
+		select {
+		case <-invoker.stopCh:
+			return
+		case <-ticker.C:
+			// check each timeout task and re-run
+			for {
+				value, err := invoker.taskList.Peek()
+				if err == queue.ErrDisposed {
+					return
+				}
+				if err == queue.ErrEmptyQueue {
+					break
+				}
 
-			// ignore return. the get must success.
-			if _, err = invoker.taskList.Get(1); err != nil {
-				logger.Warnf("[Cluster][Failback] get task failed, err=%v", err)
-				break
+				retryTask := value.(*retryTimerTask)
+				// use exponential backoff calculated wait time instead of fixed 5 seconds
+				if time.Since(retryTask.lastT) < retryTask.nextBackoff {
+					break
+				}
+
+				// ignore return. the get must success.
+				if _, err = invoker.taskList.Get(1); err != nil {
+					logger.Warnf("[Cluster][Failback] get task failed, err=%v", err)
+					break
+				}
+				go invoker.tryTimerTaskProc(ctx, retryTask)
 			}
-			go invoker.tryTimerTaskProc(ctx, retryTask)
 		}
 	}
 }
@@ -169,12 +178,13 @@ func (invoker *failbackClusterInvoker) Invoke(ctx context.Context, invocation pr
 func (invoker *failbackClusterInvoker) Destroy() {
 	invoker.BaseClusterInvoker.Destroy()
 
-	// stop ticker
-	if invoker.ticker != nil {
-		invoker.ticker.Stop()
-	}
+	invoker.stopOnce.Do(func() {
+		close(invoker.stopCh)
+	})
 
-	_ = invoker.taskList.Dispose()
+	if invoker.taskList != nil {
+		_ = invoker.taskList.Dispose()
+	}
 }
 
 type retryTimerTask struct {
