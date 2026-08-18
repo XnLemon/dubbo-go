@@ -447,12 +447,12 @@ func resolvePlaceholder(resolver *koanf.Koanf) *koanf.Koanf {
 
 func resolvePlaceholderValues(value any, resolver *koanf.Koanf) any {
 	switch typed := value.(type) {
-	case map[string]any:
+	case map[string]interface{}:
 		for key, child := range typed {
 			typed[key] = resolvePlaceholderValues(child, resolver)
 		}
 		return typed
-	case []any:
+	case []interface{}:
 		for index, child := range typed {
 			typed[index] = resolvePlaceholderValues(child, resolver)
 		}
