@@ -432,28 +432,43 @@ func GetExtensionRawConfig(koan *koanf.Koanf, prefix string, selectedKeys ...str
 	return extension.BuildRawConfig(full, selectedKeys...), true, nil
 }
 
-// resolvePlaceholder replace ${xx} with real value
+// resolvePlaceholder replaces ${xx} values in the raw configuration tree.
+// Updating the nested tree directly keeps keys containing the delimiter (for
+// example, RPC resource keys with dots) intact.
 func resolvePlaceholder(resolver *koanf.Koanf) *koanf.Koanf {
-	m := make(map[string]any)
-	for k, v := range resolver.All() {
-		s, ok := v.(string)
-		if !ok {
-			continue
-		}
-		newKey, defaultValue := checkPlaceholder(s)
-		if newKey == "" {
-			continue
-		}
-		m[k] = resolver.Get(newKey)
-		if m[k] == nil {
-			m[k] = defaultValue
-		}
-	}
-	err := resolver.Load(confmap.Provider(m, resolver.Delim()), nil)
+	raw := resolver.Raw()
+	resolvePlaceholderValues(raw, resolver)
+	err := resolver.Load(confmap.Provider(raw, ""), nil)
 	if err != nil {
 		logger.Errorf("[Loader] resolvePlaceholder error, err=%s", err)
 	}
 	return resolver
+}
+
+func resolvePlaceholderValues(value any, resolver *koanf.Koanf) any {
+	switch typed := value.(type) {
+	case map[string]interface{}:
+		for key, child := range typed {
+			typed[key] = resolvePlaceholderValues(child, resolver)
+		}
+		return typed
+	case []interface{}:
+		for index, child := range typed {
+			typed[index] = resolvePlaceholderValues(child, resolver)
+		}
+		return typed
+	case string:
+		newKey, defaultValue := checkPlaceholder(typed)
+		if newKey == "" {
+			return typed
+		}
+		if resolved := resolver.Get(newKey); resolved != nil {
+			return resolved
+		}
+		return defaultValue
+	default:
+		return value
+	}
 }
 
 func checkPlaceholder(s string) (newKey, defaultValue string) {
