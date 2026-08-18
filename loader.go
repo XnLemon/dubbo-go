@@ -429,9 +429,11 @@ func GetExtensionRawConfig(koan *koanf.Koanf, prefix string, selectedKeys ...str
 	return extension.BuildRawConfig(full, selectedKeys...), true, nil
 }
 
-// resolvePlaceholder replace ${xx} with real value
+// resolvePlaceholder replaces ${xx} with real values while preserving the
+// original nested key boundaries recorded by Koanf.
 func resolvePlaceholder(resolver *koanf.Koanf) *koanf.Koanf {
-	m := make(map[string]any)
+	updates := make(map[string]any)
+	keyMap := resolver.KeyMap()
 	for k, v := range resolver.All() {
 		s, ok := v.(string)
 		if !ok {
@@ -441,16 +443,33 @@ func resolvePlaceholder(resolver *koanf.Koanf) *koanf.Koanf {
 		if newKey == "" {
 			continue
 		}
-		m[k] = resolver.Get(newKey)
-		if m[k] == nil {
-			m[k] = defaultValue
+		value := resolver.Get(newKey)
+		if value == nil {
+			value = defaultValue
 		}
+		setRawConfigValue(updates, keyMap[k], value)
 	}
-	err := resolver.Load(confmap.Provider(m, resolver.Delim()), nil)
+	err := resolver.Load(confmap.Provider(updates, ""), nil)
 	if err != nil {
 		logger.Errorf("[Loader] resolvePlaceholder error, err=%s", err)
 	}
 	return resolver
+}
+
+func setRawConfigValue(root map[string]any, path []string, value any) {
+	if len(path) == 0 {
+		return
+	}
+	current := root
+	for _, key := range path[:len(path)-1] {
+		next, ok := current[key].(map[string]any)
+		if !ok {
+			next = make(map[string]any)
+			current[key] = next
+		}
+		current = next
+	}
+	current[path[len(path)-1]] = value
 }
 
 func checkPlaceholder(s string) (newKey, defaultValue string) {
