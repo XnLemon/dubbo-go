@@ -405,9 +405,10 @@ func GetConfigResolver(conf *loaderConf) *koanf.Koanf {
 }
 
 // GetExtensionRawConfig returns the final merged configuration subtree for an
-// extension. The extension prefix is selected as an exact child key under
-// dubbo.extensions; selectedKeys are then traversed with RawNode's exact-key
-// semantics. The boolean is false when the extension is not configured.
+// extension. The lookup uses the parser's nested map instead of Koanf's
+// delimiter-aware Get method, so only the fixed dubbo.extensions envelope is
+// interpreted as a path. Extension-owned keys are passed to RawNode as exact
+// keys. The boolean is false when the extension is not configured.
 func GetExtensionRawConfig(koan *koanf.Koanf, prefix string, selectedKeys ...string) (extension.RawConfig, bool, error) {
 	if koan == nil {
 		return extension.RawConfig{}, false, errors.New("extension raw config: koanf is nil")
@@ -416,15 +417,11 @@ func GetExtensionRawConfig(koan *koanf.Koanf, prefix string, selectedKeys ...str
 		return extension.RawConfig{}, false, errors.New("extension raw config: prefix is empty")
 	}
 
-	extensionsValue := koan.Get("dubbo.extensions")
-	if extensionsValue == nil {
-		return extension.RawConfig{}, false, nil
-	}
-	extensionsNode, err := extension.NewRawNode(extensionsValue)
+	root, err := extension.NewRawNode(koan.Raw())
 	if err != nil {
-		return extension.RawConfig{}, false, errors.WithMessage(err, "extension raw config: invalid extensions tree")
+		return extension.RawConfig{}, false, errors.WithMessage(err, "extension raw config: invalid root tree")
 	}
-	full, ok := extensionsNode.Child(prefix)
+	full, ok := extension.SelectRawNode(root, "dubbo", "extensions", prefix)
 	if !ok {
 		return extension.RawConfig{}, false, nil
 	}
