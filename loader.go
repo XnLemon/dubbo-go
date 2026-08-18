@@ -404,6 +404,34 @@ func GetConfigResolver(conf *loaderConf) *koanf.Koanf {
 	return resolvePlaceholder(k)
 }
 
+// GetExtensionRawConfig returns the final merged configuration subtree for an
+// extension. The extension prefix is selected as an exact child key under
+// dubbo.extensions; selectedKeys are then traversed with RawNode's exact-key
+// semantics. The boolean is false when the extension is not configured.
+func GetExtensionRawConfig(koan *koanf.Koanf, prefix string, selectedKeys ...string) (extension.RawConfig, bool, error) {
+	if koan == nil {
+		return extension.RawConfig{}, false, errors.New("extension raw config: koanf is nil")
+	}
+	if strings.TrimSpace(prefix) == "" {
+		return extension.RawConfig{}, false, errors.New("extension raw config: prefix is empty")
+	}
+
+	extensionsValue := koan.Get("dubbo.extensions")
+	if extensionsValue == nil {
+		return extension.RawConfig{}, false, nil
+	}
+	extensionsNode, err := extension.NewRawNode(extensionsValue)
+	if err != nil {
+		return extension.RawConfig{}, false, errors.WithMessage(err, "extension raw config: invalid extensions tree")
+	}
+	full, ok := extensionsNode.Child(prefix)
+	if !ok {
+		return extension.RawConfig{}, false, nil
+	}
+
+	return extension.BuildRawConfig(full, selectedKeys...), true, nil
+}
+
 // resolvePlaceholder replace ${xx} with real value
 func resolvePlaceholder(resolver *koanf.Koanf) *koanf.Koanf {
 	m := make(map[string]any)

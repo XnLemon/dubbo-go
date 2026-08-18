@@ -23,6 +23,11 @@ import (
 	"testing"
 )
 
+import (
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
+
 func writeFile(t *testing.T, dir, name, content string) string {
 	t.Helper()
 	p := filepath.Join(dir, name)
@@ -107,4 +112,46 @@ func TestHotUpdateConfig_AllowsWithCustomPrefix(t *testing.T) {
 	if err := hotUpdateConfig(conf); err != nil {
 		t.Fatalf("hotUpdateConfig unexpected error with allowed prefix: %v", err)
 	}
+}
+
+func TestGetExtensionRawConfigPreservesResourceKeys(t *testing.T) {
+	conf := NewLoaderConf(WithBytes([]byte("" +
+		"dubbo:\n" +
+		"  extensions:\n" +
+		"    hystrix:\n" +
+		"      consumer:\n" +
+		"        'greet.GreetService:::Greet':\n" +
+		"          timeout: 1000\n" +
+		"      provider:\n" +
+		"        'greet.GreetService:::Greet':\n" +
+		"          timeout: 1500\n")))
+	koan := GetConfigResolver(conf)
+
+	raw, found, err := GetExtensionRawConfig(koan, "hystrix", "consumer")
+	require.NoError(t, err)
+	require.True(t, found)
+
+	resource, ok := raw.Selected.Child("greet.GreetService:::Greet")
+	require.True(t, ok)
+	timeout, ok := resource.Child("timeout")
+	require.True(t, ok)
+	assert.Equal(t, 1000, timeout.Value())
+}
+
+func TestGetExtensionRawConfigUsesMergedProfile(t *testing.T) {
+	tmp := t.TempDir()
+	basePath := writeFile(t, tmp, "dubbogo.yaml", "dubbo:\n  profiles:\n    active: dev\n  extensions:\n    hystrix:\n      consumer:\n        'greet.GreetService:::Greet':\n          timeout: 1000\n")
+	writeFile(t, tmp, "dubbogo-dev.yaml", "dubbo:\n  extensions:\n    hystrix:\n      consumer:\n        'greet.GreetService:::Greet':\n          timeout: 2000\n")
+
+	conf := NewLoaderConf(WithPath(basePath))
+	koan := conf.MergeConfig(GetConfigResolver(conf))
+	raw, found, err := GetExtensionRawConfig(koan, "hystrix", "consumer")
+	require.NoError(t, err)
+	require.True(t, found)
+
+	resource, ok := raw.Selected.Child("greet.GreetService:::Greet")
+	require.True(t, ok)
+	timeout, ok := resource.Child("timeout")
+	require.True(t, ok)
+	assert.Equal(t, 2000, timeout.Value())
 }
