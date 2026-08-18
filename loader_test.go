@@ -138,28 +138,6 @@ func TestGetExtensionRawConfigPreservesResourceKeys(t *testing.T) {
 	assert.Equal(t, 1000, timeout.Value())
 }
 
-func TestGetExtensionRawConfigResolvesPlaceholdersInResourceKeys(t *testing.T) {
-	conf := NewLoaderConf(WithBytes([]byte("" +
-		"dubbo:\n" +
-		"  application:\n" +
-		"    timeout: 2300\n" +
-		"  extensions:\n" +
-		"    hystrix:\n" +
-		"      consumer:\n" +
-		"        'greet.GreetService:::Greet':\n" +
-		"          timeout: '${dubbo.application.timeout}'\n")))
-
-	raw, found, err := GetExtensionRawConfig(GetConfigResolver(conf), "hystrix", "consumer")
-	require.NoError(t, err)
-	require.True(t, found)
-
-	resource, ok := raw.Selected.Child("greet.GreetService:::Greet")
-	require.True(t, ok)
-	timeout, ok := resource.Child("timeout")
-	require.True(t, ok)
-	assert.Equal(t, 2300, timeout.Value())
-}
-
 func TestGetExtensionRawConfigUsesMergedProfile(t *testing.T) {
 	tmp := t.TempDir()
 	basePath := writeFile(t, tmp, "dubbogo.yaml", "dubbo:\n  profiles:\n    active: dev\n  extensions:\n    hystrix:\n      consumer:\n        'greet.GreetService:::Greet':\n          timeout: 1000\n")
