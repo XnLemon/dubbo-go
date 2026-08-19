@@ -342,10 +342,11 @@ func (conf *loaderConf) MergeConfig(koan *koanf.Koanf) *koanf.Koanf {
 			return koan
 		}
 		activeConf = NewLoaderConf(WithPath(path))
-		activeKoan = GetConfigResolver(activeConf)
+		activeKoan = getConfigResolver(activeConf, false)
 		if err := koan.Merge(activeKoan); err != nil {
 			logger.Debugf("[Loader] config merge error, err=%s", err)
 		}
+		return resolvePlaceholder(koan)
 	}
 	return koan
 }
@@ -373,6 +374,10 @@ func getLegalActive(active string) string {
 
 // GetConfigResolver get config resolver
 func GetConfigResolver(conf *loaderConf) *koanf.Koanf {
+	return getConfigResolver(conf, true)
+}
+
+func getConfigResolver(conf *loaderConf, resolve bool) *koanf.Koanf {
 	var (
 		k   *koanf.Koanf
 		err error
@@ -400,6 +405,9 @@ func GetConfigResolver(conf *loaderConf) *koanf.Koanf {
 
 	if err != nil {
 		panic(err)
+	}
+	if !resolve {
+		return k
 	}
 	return resolvePlaceholder(k)
 }
