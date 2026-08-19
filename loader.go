@@ -341,14 +341,11 @@ func (conf *loaderConf) MergeConfig(koan *koanf.Koanf) *koanf.Koanf {
 			logger.Debugf("[Loader] config file=%s not exist, skip config merge", path)
 			return koan
 		}
-		baseKoan := getConfigResolver(conf, false)
 		activeConf = NewLoaderConf(WithPath(path))
-		activeKoan = getConfigResolver(activeConf, false)
-		if err := baseKoan.Merge(activeKoan); err != nil {
+		activeKoan = GetConfigResolver(activeConf)
+		if err := koan.Merge(activeKoan); err != nil {
 			logger.Debugf("[Loader] config merge error, err=%s", err)
-			return koan
 		}
-		return resolvePlaceholder(baseKoan)
 	}
 	return koan
 }
@@ -376,10 +373,6 @@ func getLegalActive(active string) string {
 
 // GetConfigResolver get config resolver
 func GetConfigResolver(conf *loaderConf) *koanf.Koanf {
-	return getConfigResolver(conf, true)
-}
-
-func getConfigResolver(conf *loaderConf, resolve bool) *koanf.Koanf {
 	var (
 		k   *koanf.Koanf
 		err error
@@ -408,17 +401,16 @@ func getConfigResolver(conf *loaderConf, resolve bool) *koanf.Koanf {
 	if err != nil {
 		panic(err)
 	}
-	if !resolve {
-		return k
-	}
 	return resolvePlaceholder(k)
 }
 
-// GetExtensionRawConfig returns the final merged configuration subtree for an
-// extension. The lookup uses the parser's nested map instead of Koanf's
-// delimiter-aware Get method, so only the fixed dubbo.extensions envelope is
-// interpreted as a path. Extension-owned keys are passed to RawNode as exact
-// keys. The boolean is false when the extension is not configured.
+// GetExtensionRawConfig returns the extension subtree from the supplied
+// configuration tree. Callers are responsible for loading and finalizing the
+// configuration, including any profile merge or placeholder resolution. The
+// lookup uses the parser's nested map instead of Koanf's delimiter-aware Get
+// method, so only the fixed dubbo.extensions envelope is interpreted as a
+// path. Extension-owned keys are passed to RawNode as exact keys. The boolean
+// is false when the extension is not configured.
 func GetExtensionRawConfig(koan *koanf.Koanf, prefix string, selectedKeys ...string) (extension.RawConfig, bool, error) {
 	if koan == nil {
 		return extension.RawConfig{}, false, errors.New("extension raw config: koanf is nil")
@@ -454,11 +446,9 @@ func getRawConfigValue(root map[string]any, path ...string) (any, bool) {
 	return current, true
 }
 
-// resolvePlaceholder replaces ${xx} with real values while preserving the
-// original nested key boundaries recorded by Koanf.
+// resolvePlaceholder replace ${xx} with real value
 func resolvePlaceholder(resolver *koanf.Koanf) *koanf.Koanf {
-	updates := make(map[string]any)
-	keyMap := resolver.KeyMap()
+	m := make(map[string]any)
 	for k, v := range resolver.All() {
 		s, ok := v.(string)
 		if !ok {
@@ -468,33 +458,16 @@ func resolvePlaceholder(resolver *koanf.Koanf) *koanf.Koanf {
 		if newKey == "" {
 			continue
 		}
-		value := resolver.Get(newKey)
-		if value == nil {
-			value = defaultValue
+		m[k] = resolver.Get(newKey)
+		if m[k] == nil {
+			m[k] = defaultValue
 		}
-		setRawConfigValue(updates, keyMap[k], value)
 	}
-	err := resolver.Load(confmap.Provider(updates, ""), nil)
+	err := resolver.Load(confmap.Provider(m, resolver.Delim()), nil)
 	if err != nil {
 		logger.Errorf("[Loader] resolvePlaceholder error, err=%s", err)
 	}
 	return resolver
-}
-
-func setRawConfigValue(root map[string]any, path []string, value any) {
-	if len(path) == 0 {
-		return
-	}
-	current := root
-	for _, key := range path[:len(path)-1] {
-		next, ok := current[key].(map[string]any)
-		if !ok {
-			next = make(map[string]any)
-			current[key] = next
-		}
-		current = next
-	}
-	current[path[len(path)-1]] = value
 }
 
 func checkPlaceholder(s string) (newKey, defaultValue string) {
