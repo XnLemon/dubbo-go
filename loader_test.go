@@ -138,6 +138,23 @@ func TestGetExtensionRawConfigPreservesResourceKeys(t *testing.T) {
 	assert.Equal(t, 1000, timeout.Value())
 }
 
+func TestGetExtensionRawConfigIgnoresUnsupportedValuesOutsideExtension(t *testing.T) {
+	conf := NewLoaderConf(WithBytes([]byte("" +
+		"dubbo:\n" +
+		"  application:\n" +
+		"    release-at: 2026-08-19T05:00:00Z\n" +
+		"  extensions:\n" +
+		"    hystrix:\n" +
+		"      timeout: 1000\n")))
+
+	raw, found, err := GetExtensionRawConfig(GetConfigResolver(conf), "hystrix")
+	require.NoError(t, err)
+	require.True(t, found)
+	timeout, ok := raw.Full.Child("timeout")
+	require.True(t, ok)
+	assert.Equal(t, 1000, timeout.Value())
+}
+
 func TestGetExtensionRawConfigResolvesPlaceholdersInResourceKeys(t *testing.T) {
 	conf := NewLoaderConf(WithBytes([]byte("" +
 		"dubbo:\n" +

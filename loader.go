@@ -427,16 +427,31 @@ func GetExtensionRawConfig(koan *koanf.Koanf, prefix string, selectedKeys ...str
 		return extension.RawConfig{}, false, errors.New("extension raw config: prefix is empty")
 	}
 
-	root, err := extension.NewRawNode(koan.Raw())
-	if err != nil {
-		return extension.RawConfig{}, false, errors.WithMessage(err, "extension raw config: invalid root tree")
-	}
-	full, ok := extension.SelectRawNode(root, "dubbo", "extensions", prefix)
+	extensionValue, ok := getRawConfigValue(koan.Raw(), "dubbo", "extensions", prefix)
 	if !ok {
 		return extension.RawConfig{}, false, nil
 	}
+	full, err := extension.NewRawNode(extensionValue)
+	if err != nil {
+		return extension.RawConfig{}, false, errors.WithMessage(err, "extension raw config: invalid extension tree")
+	}
 
 	return extension.BuildRawConfig(full, selectedKeys...), true, nil
+}
+
+func getRawConfigValue(root map[string]any, path ...string) (any, bool) {
+	var current any = root
+	for _, key := range path {
+		values, ok := current.(map[string]any)
+		if !ok {
+			return nil, false
+		}
+		current, ok = values[key]
+		if !ok {
+			return nil, false
+		}
+	}
+	return current, true
 }
 
 // resolvePlaceholder replaces ${xx} with real values while preserving the
