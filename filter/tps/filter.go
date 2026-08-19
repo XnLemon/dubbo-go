@@ -57,7 +57,7 @@ var (
 )
 
 func init() {
-	extension.SetFilter(constant.TpsLimitFilterKey, newTpsLimitFilter)
+	extension.RegisterFrameworkFilter(constant.TpsLimitFilterKey, newTpsLimitFilter)
 }
 
 type tpsLimitFilter struct{}

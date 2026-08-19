@@ -37,7 +37,7 @@ var (
 )
 
 func init() {
-	extension.SetFilter(constant.AuthConsumerFilterKey, newSignFilter)
+	extension.RegisterFrameworkFilter(constant.AuthConsumerFilterKey, newSignFilter)
 }
 
 // signFilter signs the request on consumer side

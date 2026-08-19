@@ -51,7 +51,7 @@ var (
 )
 
 func init() {
-	extension.SetFilter(constant.GenericServiceFilterKey, newGenericServiceFilter)
+	extension.RegisterFrameworkFilter(constant.GenericServiceFilterKey, newGenericServiceFilter)
 }
 
 // genericServiceFilter is for Server

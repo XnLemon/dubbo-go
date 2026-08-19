@@ -40,13 +40,13 @@ import (
 
 func init() {
 	// TODO: use single filter to simplify filter field in configuration
-	extension.SetFilter(constant.OTELServerTraceKey, func() filter.Filter {
+	extension.RegisterFrameworkFilter(constant.OTELServerTraceKey, func() filter.Filter {
 		return &otelServerFilter{
 			Propagators:    otel.GetTextMapPropagator(),
 			TracerProvider: otel.GetTracerProvider(),
 		}
 	})
-	extension.SetFilter(constant.OTELClientTraceKey, func() filter.Filter {
+	extension.RegisterFrameworkFilter(constant.OTELClientTraceKey, func() filter.Filter {
 		return &otelClientFilter{
 			Propagators:    otel.GetTextMapPropagator(),
 			TracerProvider: otel.GetTracerProvider(),

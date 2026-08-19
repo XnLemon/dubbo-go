@@ -72,7 +72,7 @@ func TestConsumerFilterInvokeWithGlobalPackage(t *testing.T) {
 		baseUrl        = common.NewURLWithOptions(common.WithParams(url.Values{}))
 		rpcInvocation  = invocation.NewRPCInvocation("GetUser", []any{"OK"}, make(map[string]any))
 		opt            = graceful_shutdown.NewOptions()
-		filterValue, _ = extension.GetFilter(constant.GracefulShutdownConsumerFilterKey)
+		filterValue, _ = extension.NewFrameworkFilter(constant.GracefulShutdownConsumerFilterKey)
 	)
 
 	opt.Shutdown.RejectRequestHandler = "test"

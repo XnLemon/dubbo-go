@@ -26,23 +26,41 @@ import (
 )
 
 var (
-	filters                  = NewRegistry[func() filter.Filter]("filter")
+	frameworkFilters         = NewRegistry[func() filter.Filter]("framework filter")
 	rejectedExecutionHandler = NewRegistry[func() filter.RejectedExecutionHandler]("rejected execution handler")
 )
 
-// SetFilter sets the filter extension with @name
-// For example: metrics/token/tracing/limit/...
-func SetFilter(name string, v func() filter.Filter) {
-	filters.Register(name, v)
+// RegisterFrameworkFilter registers an internal framework filter factory.
+// External extensions contribute filters through Definition.Filters instead.
+func RegisterFrameworkFilter(id string, factory func() filter.Filter) {
+	frameworkFilters.Register(id, factory)
 }
 
-// GetFilter finds the filter extension with @name
-func GetFilter(name string) (filter.Filter, bool) {
-	creator, ok := filters.Get(name)
+// NewFrameworkFilter creates one internal framework filter by ID.
+func NewFrameworkFilter(id string) (filter.Filter, bool) {
+	creator, ok := frameworkFilters.Get(id)
 	if !ok {
 		return nil, false
 	}
 	return creator(), true
+}
+
+// FrameworkFilterSpecs resolves internal framework IDs into FilterSpecs. The
+// IDs are namespaced so they cannot be mistaken for user-facing filter names.
+func FrameworkFilterSpecs(ids ...string) ([]FilterSpec, error) {
+	specs := make([]FilterSpec, 0, len(ids))
+	for order, id := range ids {
+		factory, ok := frameworkFilters.Get(id)
+		if !ok {
+			return nil, errors.Errorf("framework filter %q is not registered", id)
+		}
+		specs = append(specs, FilterSpec{
+			ID:      "framework:" + id,
+			Factory: factory,
+			Order:   order,
+		})
+	}
+	return specs, nil
 }
 
 // SetRejectedExecutionHandler sets the RejectedExecutionHandler with @name
@@ -60,10 +78,9 @@ func GetRejectedExecutionHandler(name string) (filter.RejectedExecutionHandler, 
 	return creator(), nil
 }
 
-// UnregisterFilter removes the filter extension with @name
-// This helps prevent memory leaks in dynamic extension scenarios
-func UnregisterFilter(name string) {
-	filters.Unregister(name)
+// UnregisterFrameworkFilter removes an internal framework filter factory.
+func UnregisterFrameworkFilter(id string) {
+	frameworkFilters.Unregister(id)
 }
 
 // UnregisterRejectedExecutionHandler removes the RejectedExecutionHandler with @name
@@ -71,7 +88,7 @@ func UnregisterRejectedExecutionHandler(name string) {
 	rejectedExecutionHandler.Unregister(name)
 }
 
-// GetAllFilterNames returns all registered filter names
-func GetAllFilterNames() []string {
-	return filters.Names()
+// FrameworkFilterIDs returns registered internal framework filter IDs.
+func FrameworkFilterIDs() []string {
+	return frameworkFilters.Names()
 }

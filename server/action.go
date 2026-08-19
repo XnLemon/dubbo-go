@@ -154,6 +154,14 @@ func (svcOpts *ServiceOptions) Export() error {
 		logger.Warnf("[Server] the service %v'svcOpts '%v' protocols don't has right protocolConfigs, please check your configuration center and transfer protocol", svcConf.Interface, svcConf.ProtocolIDs)
 		return nil
 	}
+	frameworkSpecs, err := providerFrameworkFilterSpecs(svcOpts)
+	if err != nil {
+		return err
+	}
+	filterSpecs, err := extension.MergeFilterSpecs(frameworkSpecs, svcOpts.filterSpecs)
+	if err != nil {
+		return err
+	}
 
 	var invoker base.Invoker
 	ports := getRandomPort(protocolConfigs)
@@ -221,6 +229,7 @@ func (svcOpts *ServiceOptions) Export() error {
 
 			// protocol conf
 			common.WithAttribute(constant.ProtocolConfigKey, svcOpts.Protocols),
+			common.WithAttribute(extension.FilterSpecsAttributeKey, filterSpecs),
 		)
 
 		if info != nil {
@@ -336,8 +345,6 @@ func (svcOpts *ServiceOptions) Implement(rpcService common.RPCService) {
 func (svcOpts *ServiceOptions) getUrlMap() url.Values {
 	svcConf := svcOpts.Service
 	app := svcOpts.Application
-	metrics := svcOpts.srvOpts.Metrics
-	tracing := svcOpts.srvOpts.Otel.TracingConfig
 
 	urlMap := url.Values{}
 	// first set user params
@@ -371,24 +378,6 @@ func (svcOpts *ServiceOptions) getUrlMap() url.Values {
 	urlMap.Set(constant.EnvironmentKey, app.Environment)
 	//issue #2864  nacos client add weight
 	urlMap.Set(constant.WeightKey, strconv.FormatInt(svcOpts.Provider.Weight, 10))
-
-	//filter
-	var filters string
-	if svcConf.Filter == "" {
-		filters = constant.DefaultServiceFilters
-	} else {
-		filters = svcConf.Filter
-	}
-	if svcOpts.adaptiveService {
-		filters += fmt.Sprintf(",%s", constant.AdaptiveServiceProviderFilterKey)
-	}
-	if metrics.Enable != nil && *metrics.Enable {
-		filters += fmt.Sprintf(",%s", constant.MetricsFilterKey)
-	}
-	if tracing.Enable != nil && *tracing.Enable {
-		filters += fmt.Sprintf(",%s", constant.OTELServerTraceKey)
-	}
-	urlMap.Set(constant.ServiceFilterKey, filters)
 
 	// filter special config
 	urlMap.Set(constant.AccessLogFilterKey, svcConf.AccessLog)
@@ -427,6 +416,31 @@ func (svcOpts *ServiceOptions) getUrlMap() url.Values {
 	}
 
 	return urlMap
+}
+
+func providerFrameworkFilterSpecs(opts *ServiceOptions) ([]extension.FilterSpec, error) {
+	ids := []string{
+		constant.EchoFilterKey,
+		constant.TokenFilterKey,
+		constant.AccessLogFilterKey,
+		constant.TpsLimitFilterKey,
+		constant.GenericServiceFilterKey,
+		constant.ExecuteLimitFilterKey,
+		constant.GracefulShutdownProviderFilterKey,
+	}
+	if opts.adaptiveService {
+		ids = append(ids, constant.AdaptiveServiceProviderFilterKey)
+	}
+	if opts.Service.Auth == "true" {
+		ids = append(ids, constant.AuthProviderFilterKey)
+	}
+	if opts.srvOpts.Metrics.Enable != nil && *opts.srvOpts.Metrics.Enable {
+		ids = append(ids, constant.MetricsFilterKey)
+	}
+	if opts.srvOpts.Otel.TracingConfig.Enable != nil && *opts.srvOpts.Otel.TracingConfig.Enable {
+		ids = append(ids, constant.OTELServerTraceKey)
+	}
+	return extension.FrameworkFilterSpecs(ids...)
 }
 
 // GetExportedUrls will return the url in service config's exporter

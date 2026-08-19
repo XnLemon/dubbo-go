@@ -18,6 +18,7 @@
 package client
 
 import (
+	"context"
 	"testing"
 )
 
@@ -29,6 +30,9 @@ import (
 import (
 	"dubbo.apache.org/dubbo-go/v3/common"
 	"dubbo.apache.org/dubbo-go/v3/common/extension"
+	"dubbo.apache.org/dubbo-go/v3/filter"
+	"dubbo.apache.org/dubbo-go/v3/protocol/base"
+	"dubbo.apache.org/dubbo-go/v3/protocol/result"
 )
 
 type clientExtensionConfig struct {
@@ -38,6 +42,16 @@ type clientExtensionConfig struct {
 type clientExtensionOption struct {
 	prefix string
 	value  int
+}
+
+type clientExtensionFilter struct{}
+
+func (*clientExtensionFilter) Invoke(ctx context.Context, invoker base.Invoker, invocation base.Invocation) result.Result {
+	return invoker.Invoke(ctx, invocation)
+}
+
+func (*clientExtensionFilter) OnResponse(_ context.Context, response result.Result, _ base.Invoker, _ base.Invocation) result.Result {
+	return response
 }
 
 func (o clientExtensionOption) Prefix() string {
@@ -83,4 +97,61 @@ func TestWithExtensionRejectsUnsupportedClientScope(t *testing.T) {
 	_, err := NewClient(WithExtension(clientExtensionOption{prefix: prefix}))
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "scope")
+}
+
+func TestDialBindsResourcesAndAutomaticallyBuildsExtensionFilters(t *testing.T) {
+	const (
+		prefix       = "client-runtime-resource"
+		protocolName = "client-runtime-resource-protocol"
+	)
+	registerGenericResultProtocol(t, protocolName)
+	extension.Unregister(prefix)
+	t.Cleanup(func() { extension.Unregister(prefix) })
+
+	resources := make([]extension.Resource, 0, 2)
+	factoryCalls := 0
+	require.NoError(t, extension.Register(extension.Definition{
+		Prefix:    prefix,
+		Scopes:    extension.ClientScope,
+		NewConfig: func() any { return &clientExtensionConfig{} },
+		Filters: func(ctx *extension.Context) ([]extension.FilterSpec, error) {
+			require.NotNil(t, ctx.Resource)
+			resources = append(resources, *ctx.Resource)
+			return []extension.FilterSpec{{
+				ID:    prefix + ":filter",
+				Order: 100,
+				Factory: func() filter.Filter {
+					factoryCalls++
+					return &clientExtensionFilter{}
+				},
+			}}, nil
+		},
+	}))
+
+	cli, err := NewClient(WithExtension(clientExtensionOption{prefix: prefix}))
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, cli.CloseExtensions()) })
+
+	for _, interfaceName := range []string{"payment.PaymentService", "user.UserService"} {
+		connection, dialErr := cli.Dial(
+			interfaceName,
+			WithProtocol(protocolName),
+			WithURL(protocolName+"://127.0.0.1:1"),
+			WithClusterAvailable(),
+			WithGroup("test"),
+			WithVersion("v1"),
+		)
+		require.NoError(t, dialErr)
+		require.NotNil(t, connection.refOpts.invoker)
+	}
+
+	require.Len(t, resources, 2)
+	assert.Equal(t, extension.Resource{
+		ServiceKey: "test/payment.PaymentService:v1",
+		Interface:  "payment.PaymentService",
+		Group:      "test",
+		Version:    "v1",
+	}, resources[0])
+	assert.Equal(t, "test/user.UserService:v1", resources[1].ServiceKey)
+	assert.Equal(t, 2, factoryCalls)
 }

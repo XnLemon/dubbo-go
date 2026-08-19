@@ -469,14 +469,6 @@ func TestWithServerParamCreateMap(t *testing.T) {
 	assert.Equal(t, "value1", opts.Provider.Params["key1"])
 }
 
-// Test WithServerFilter
-func TestWithServerFilter(t *testing.T) {
-	opts := defaultServerOptions()
-	opt := WithServerFilter("echo")
-	opt(opts)
-	assert.Equal(t, "echo", opts.Provider.Filter)
-}
-
 // Test WithServerRegistryIDs
 func TestWithServerRegistryIDs(t *testing.T) {
 	opts := defaultServerOptions()
@@ -615,14 +607,6 @@ func TestWithRegistryIDs(t *testing.T) {
 	opt := WithRegistryIDs(registryIDs)
 	opt(opts)
 	assert.Equal(t, registryIDs, opts.Service.RegistryIDs)
-}
-
-// Test WithFilter
-func TestWithFilter(t *testing.T) {
-	opts := defaultServiceOptions()
-	opt := WithFilter("echo,access_log")
-	opt(opts)
-	assert.Equal(t, "echo,access_log", opts.Service.Filter)
 }
 
 // Test WithLoadBalanceConsistentHashing

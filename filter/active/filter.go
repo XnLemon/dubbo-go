@@ -48,7 +48,7 @@ var (
 )
 
 func init() {
-	extension.SetFilter(constant.ActiveFilterKey, newActiveFilter)
+	extension.RegisterFrameworkFilter(constant.ActiveFilterKey, newActiveFilter)
 }
 
 // Filter tracks the requests status

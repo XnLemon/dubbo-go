@@ -64,7 +64,7 @@ var (
 )
 
 func init() {
-	extension.SetFilter(constant.AccessLogFilterKey, newFilter)
+	extension.RegisterFrameworkFilter(constant.AccessLogFilterKey, newFilter)
 }
 
 // Filter for Access Log

@@ -18,6 +18,7 @@
 package extension
 
 import (
+	"context"
 	"errors"
 	"testing"
 )
@@ -29,10 +30,23 @@ import (
 
 import (
 	"dubbo.apache.org/dubbo-go/v3/common"
+	"dubbo.apache.org/dubbo-go/v3/filter"
+	"dubbo.apache.org/dubbo-go/v3/protocol/base"
+	"dubbo.apache.org/dubbo-go/v3/protocol/result"
 )
 
 type runtimeTestConfig struct {
 	Value int
+}
+
+type runtimeTestFilter struct{}
+
+func (*runtimeTestFilter) Invoke(ctx context.Context, invoker base.Invoker, invocation base.Invocation) result.Result {
+	return invoker.Invoke(ctx, invocation)
+}
+
+func (*runtimeTestFilter) OnResponse(_ context.Context, response result.Result, _ base.Invoker, _ base.Invocation) result.Result {
+	return response
 }
 
 type runtimeTestOption struct {
@@ -241,4 +255,75 @@ func TestPlanRejectsConfiguredUnknownPrefix(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "unknown-extension")
 	assert.Contains(t, err.Error(), "no definition")
+}
+
+func TestRuntimeBindResourceUsesContextCopyAndCachesSpecs(t *testing.T) {
+	const prefix = "runtime-resource-cache"
+	filterCalls := 0
+	registerRuntimeDefinition(t, Definition{
+		Prefix:    prefix,
+		Scopes:    ClientScope,
+		NewConfig: func() any { return &runtimeTestConfig{} },
+		Filters: func(context *Context) ([]FilterSpec, error) {
+			filterCalls++
+			require.NotNil(t, context.Resource)
+			assert.Equal(t, "group/example.Service:v1", context.Resource.ServiceKey)
+			return []FilterSpec{
+				{ID: "test:late", Order: 20, Factory: func() filter.Filter { return &runtimeTestFilter{} }},
+				{ID: "test:early", Order: 10, Factory: func() filter.Filter { return &runtimeTestFilter{} }},
+				{ID: "test:late", Order: 20, Factory: func() filter.Filter { return &runtimeTestFilter{} }},
+			}, nil
+		},
+	})
+	runtime, err := NewPlan(nil, runtimeTestOption{prefix: prefix}).Build(ClientScope, common.CONSUMER)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, runtime.Close()) })
+	resource := Resource{
+		ServiceKey: "group/example.Service:v1",
+		Interface:  "example.Service",
+		Group:      "group",
+		Version:    "v1",
+	}
+
+	first, err := runtime.BindResource(resource)
+	require.NoError(t, err)
+	second, err := runtime.BindResource(resource)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"test:early", "test:late"}, []string{first[0].ID, first[1].ID})
+	require.Len(t, second, 2)
+	assert.Equal(t, []string{first[0].ID, first[1].ID}, []string{second[0].ID, second[1].ID})
+	assert.Equal(t, []int{first[0].Order, first[1].Order}, []int{second[0].Order, second[1].Order})
+	assert.Equal(t, 1, filterCalls)
+	baseContext, ok := runtime.Context(prefix)
+	require.True(t, ok)
+	assert.Nil(t, baseContext.Resource)
+}
+
+func TestRuntimeBindResourceRejectsCrossExtensionIDConflict(t *testing.T) {
+	prefixes := []string{"runtime-resource-conflict-a", "runtime-resource-conflict-b"}
+	options := make([]Option, 0, len(prefixes))
+	for _, prefix := range prefixes {
+		registerRuntimeDefinition(t, Definition{
+			Prefix:    prefix,
+			Scopes:    ClientScope,
+			NewConfig: func() any { return &runtimeTestConfig{} },
+			Filters: func(*Context) ([]FilterSpec, error) {
+				return []FilterSpec{{ID: "shared:id", Factory: func() filter.Filter { return &runtimeTestFilter{} }}}, nil
+			},
+		})
+		options = append(options, runtimeTestOption{prefix: prefix})
+	}
+	runtime, err := NewPlan(nil, options...).Build(ClientScope, common.CONSUMER)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, runtime.Close()) })
+
+	_, err = runtime.BindResource(Resource{ServiceKey: "example.Service", Interface: "example.Service"})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "duplicate ID")
+}
+
+func TestResourceValidateRequiresCanonicalServiceKey(t *testing.T) {
+	err := (Resource{ServiceKey: "wrong", Interface: "example.Service", Group: "group"}).Validate()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "canonical")
 }

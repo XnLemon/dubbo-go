@@ -37,7 +37,7 @@ import (
 
 // this should be executed before users set their own Tracer
 func init() {
-	extension.SetFilter(constant.TracingFilterKey, newTracingFilter)
+	extension.RegisterFrameworkFilter(constant.TracingFilterKey, newTracingFilter)
 	opentracing.SetGlobalTracer(opentracing.NoopTracer{})
 }
 

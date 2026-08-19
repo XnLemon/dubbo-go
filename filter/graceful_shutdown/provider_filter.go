@@ -42,7 +42,7 @@ var (
 )
 
 func init() {
-	extension.SetFilter(constant.GracefulShutdownProviderFilterKey, func() filter.Filter {
+	extension.RegisterFrameworkFilter(constant.GracefulShutdownProviderFilterKey, func() filter.Filter {
 		return newProviderGracefulShutdownFilter()
 	})
 }

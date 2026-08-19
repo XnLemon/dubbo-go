@@ -107,6 +107,24 @@ func (s *Server) registerWithMode(handler any, info *common.ServiceInfo, idlMode
 	if err != nil {
 		return err
 	}
+	if newSvcOpts.Service.Interface == "" {
+		if info != nil {
+			newSvcOpts.Service.Interface = info.InterfaceName
+		}
+		if newSvcOpts.Service.Interface == "" {
+			newSvcOpts.Service.Interface = common.GetReference(handler)
+		}
+	}
+	resource := extension.Resource{
+		ServiceKey: common.ServiceKey(newSvcOpts.Service.Interface, newSvcOpts.Service.Group, newSvcOpts.Service.Version),
+		Interface:  newSvcOpts.Service.Interface,
+		Group:      newSvcOpts.Service.Group,
+		Version:    newSvcOpts.Service.Version,
+	}
+	newSvcOpts.filterSpecs, err = s.extensionRuntime.BindResource(resource)
+	if err != nil {
+		return err
+	}
 	s.registerServiceOptions(newSvcOpts)
 	return nil
 }

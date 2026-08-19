@@ -605,7 +605,7 @@ func TestTripleClientOTELTraceparentIsolation(t *testing.T) {
 		otel.SetTextMapPropagator(oldPropagator)
 	}()
 
-	clientFilter, ok := extension.GetFilter(constant.OTELClientTraceKey)
+	clientFilter, ok := extension.NewFrameworkFilter(constant.OTELClientTraceKey)
 	require.True(t, ok)
 
 	incomingTraceparent := "00-4bf92f3577b34da6a3ce929d0e0e4736-1111111111111111-01"

@@ -36,7 +36,7 @@ import (
 var metricFilterInstance *metricsFilter
 
 func init() {
-	extension.SetFilter(constant.MetricsFilterKey, newFilter)
+	extension.RegisterFrameworkFilter(constant.MetricsFilterKey, newFilter)
 }
 
 // metricsFilter will report RPC metrics to the metrics bus and implements the filter.Filter interface

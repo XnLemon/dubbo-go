@@ -39,7 +39,7 @@ var (
 )
 
 func init() {
-	extension.SetFilter(constant.EchoFilterKey, newEchoFilter)
+	extension.RegisterFrameworkFilter(constant.EchoFilterKey, newEchoFilter)
 }
 
 type echoFilter struct{}

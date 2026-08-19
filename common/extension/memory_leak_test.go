@@ -93,31 +93,31 @@ func TestFilterMemoryManagement(t *testing.T) {
 	testName := "test-filter-memory"
 
 	// Get initial count
-	initialCount := len(GetAllFilterNames())
+	initialCount := len(FrameworkFilterIDs())
 
 	// Register a filter
-	SetFilter(testName, func() filter.Filter {
+	RegisterFrameworkFilter(testName, func() filter.Filter {
 		return &MockFilter{}
 	})
 
 	// Verify registration
-	afterRegisterCount := len(GetAllFilterNames())
+	afterRegisterCount := len(FrameworkFilterIDs())
 	assert.Equal(t, initialCount+1, afterRegisterCount, "Filter should be registered")
 
 	// Verify filter can be retrieved
-	f, exists := GetFilter(testName)
+	f, exists := NewFrameworkFilter(testName)
 	assert.True(t, exists, "Should be able to get registered filter")
 	assert.NotNil(t, f, "Retrieved filter should not be nil")
 
 	// Unregister the filter
-	UnregisterFilter(testName)
+	UnregisterFrameworkFilter(testName)
 
 	// Verify unregistration
-	afterUnregisterCount := len(GetAllFilterNames())
+	afterUnregisterCount := len(FrameworkFilterIDs())
 	assert.Equal(t, initialCount, afterUnregisterCount, "Filter should be unregistered")
 
 	// Verify filter cannot be retrieved
-	f, exists = GetFilter(testName)
+	f, exists = NewFrameworkFilter(testName)
 	assert.False(t, exists, "Should not be able to get unregistered filter")
 	assert.Nil(t, f, "Retrieved filter should be nil")
 }

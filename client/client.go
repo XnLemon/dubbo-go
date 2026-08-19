@@ -227,6 +227,24 @@ func (cli *Client) dial(interfaceName string, info *ClientInfo, srv any, opts ..
 	if err := newRefOpts.init(finalOpts...); err != nil {
 		return nil, err
 	}
+	resource := extension.Resource{
+		ServiceKey: common.ServiceKey(newRefOpts.Reference.InterfaceName, newRefOpts.Reference.Group, newRefOpts.Reference.Version),
+		Interface:  newRefOpts.Reference.InterfaceName,
+		Group:      newRefOpts.Reference.Group,
+		Version:    newRefOpts.Reference.Version,
+	}
+	extensionSpecs, err := cli.extensionRuntime.BindResource(resource)
+	if err != nil {
+		return nil, err
+	}
+	frameworkSpecs, err := consumerFrameworkFilterSpecs(newRefOpts)
+	if err != nil {
+		return nil, err
+	}
+	newRefOpts.filterSpecs, err = extension.MergeFilterSpecs(frameworkSpecs, extensionSpecs)
+	if err != nil {
+		return nil, err
+	}
 	effectiveRegistries := filterRegistriesByIDs(newRefOpts.Reference.RegistryIDs, newRefOpts.Registries)
 	if err := metadata.InitRegistryMetadataReport(effectiveRegistries); err != nil {
 		return nil, err
@@ -240,8 +258,22 @@ func (cli *Client) dial(interfaceName string, info *ClientInfo, srv any, opts ..
 	} else {
 		newRefOpts.Refer()
 	}
-
 	return &Connection{refOpts: newRefOpts}, nil
+}
+
+func consumerFrameworkFilterSpecs(opts *ReferenceOptions) ([]extension.FilterSpec, error) {
+	ids := make([]string, 0, 4)
+	if opts.Reference.Generic != "" {
+		ids = append(ids, constant.GenericFilterKey)
+	}
+	ids = append(ids, constant.GracefulShutdownConsumerFilterKey)
+	if opts.Metrics.Enable != nil && *opts.Metrics.Enable {
+		ids = append(ids, constant.MetricsFilterKey)
+	}
+	if opts.Otel.TracingConfig.Enable != nil && *opts.Otel.TracingConfig.Enable {
+		ids = append(ids, constant.OTELClientTraceKey)
+	}
+	return extension.FrameworkFilterSpecs(ids...)
 }
 
 func filterRegistriesByIDs(ids []string, regs map[string]*global.RegistryConfig) map[string]*global.RegistryConfig {

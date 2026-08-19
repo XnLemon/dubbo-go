@@ -70,7 +70,7 @@ var (
 )
 
 func init() {
-	extension.SetFilter(constant.ExecuteLimitFilterKey, newFilter)
+	extension.RegisterFrameworkFilter(constant.ExecuteLimitFilterKey, newFilter)
 }
 
 type executeLimitFilter struct {

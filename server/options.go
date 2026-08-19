@@ -331,9 +331,8 @@ func WithServerJSON() ServerOption {
 	}
 }
 
-// WithServerToken requires consumers to present the same service token when the token provider
-// filter is active. Use it for simple shared-secret protection and pair it with
-// WithServerFilter("token") or a chain containing that filter.
+// WithServerToken requires consumers to present the same service token. The
+// framework token filter is included automatically.
 func WithServerToken(token string) ServerOption {
 	return func(opts *ServerOptions) {
 		opts.Provider.Token = token
@@ -478,17 +477,6 @@ func WithServerParam(k, v string) ServerOption {
 			opts.Provider.Params = make(map[string]string)
 		}
 		opts.Provider.Params[k] = v
-	}
-}
-
-// WithServerFilter selects the comma-separated provider filter chain applied to incoming calls
-// by default, in execution order. Use it for shared middleware such as authentication, metrics,
-// or custom validation. A service-level WithFilter replaces this chain.
-//
-// todo(DMwangnima): change Filter Option like Cluster and LoadBalance
-func WithServerFilter(filter string) ServerOption {
-	return func(opts *ServerOptions) {
-		opts.Provider.Filter = filter
 	}
 }
 
@@ -672,6 +660,7 @@ type ServiceOptions struct {
 	exportersLock   sync.Mutex
 	exporters       []base.Exporter
 	adaptiveService bool
+	filterSpecs     []extension.FilterSpec
 
 	// for triple non-IDL mode
 	// consider put here or global.ServiceConfig
@@ -803,17 +792,6 @@ func WithRegistryIDs(registryIDs []string) ServiceOption {
 		if len(registryIDs) > 0 {
 			cfg.Service.RegistryIDs = registryIDs
 		}
-	}
-}
-
-// WithFilter selects the comma-separated provider filter chain applied to incoming calls for
-// this service, in execution order. Use it to add service-specific middleware such as "auth"
-// or a custom validator. It replaces the server-level default filter chain.
-//
-// todo(DMwangnima): change Filter Option like Cluster and LoadBalance
-func WithFilter(filter string) ServiceOption {
-	return func(cfg *ServiceOptions) {
-		cfg.Service.Filter = filter
 	}
 }
 
@@ -1011,9 +989,8 @@ func WithJSON() ServiceOption {
 	}
 }
 
-// WithToken requires consumers to present the same service token when the token provider filter
-// is active. Use it for simple shared-secret protection and pair it with WithFilter("token") or
-// a chain containing that filter.
+// WithToken requires consumers to present the same service token. The
+// framework token filter is included automatically.
 func WithToken(token string) ServiceOption {
 	return func(opts *ServiceOptions) {
 		opts.Service.Token = token
@@ -1123,11 +1100,8 @@ func WithExecuteLimitRejectedHandler(exeRejHandler string) ServiceOption {
 	}
 }
 
-// WithAuth enables AK/SK request-signature verification when set to "true" and the provider
-// filter chain contains "auth". Use it when this service must authenticate calling applications;
-// missing or invalid signatures are rejected before execution. Enable both parts with
-// WithFilter("auth") and WithAuth("true"), then configure compatible access-key storage and
-// consumer signing.
+// WithAuth enables AK/SK request-signature verification when set to "true".
+// Configure compatible access-key storage and consumer signing as well.
 func WithAuth(auth string) ServiceOption {
 	return func(opts *ServiceOptions) {
 		opts.Service.Auth = auth

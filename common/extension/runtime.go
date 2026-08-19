@@ -54,6 +54,19 @@ type Resource struct {
 	Version    string
 }
 
+// Validate verifies the canonical service identity supplied by the core. An
+// empty Method identifies a service-level resource.
+func (r Resource) Validate() error {
+	if strings.TrimSpace(r.Interface) == "" {
+		return fmt.Errorf("extension: resource interface is required")
+	}
+	expected := common.ServiceKey(r.Interface, r.Group, r.Version)
+	if r.ServiceKey != expected {
+		return fmt.Errorf("extension: resource service key %q does not match canonical key %q", r.ServiceKey, expected)
+	}
+	return nil
+}
+
 // Context carries the lifecycle, role, extension configuration, and optional
 // RPC resource supplied to an extension callback. A nil Resource means that
 // the lifecycle context has not yet been bound to a concrete RPC resource.
@@ -120,6 +133,10 @@ type FilterSpec struct {
 	Factory func() filter.Filter
 	Order   int
 }
+
+// FilterSpecsAttributeKey is the URL attribute used internally to carry
+// already-resolved FilterSpecs through registry protocol adapters.
+const FilterSpecsAttributeKey = "dubbo.extension.filter-specs"
 
 // Definition describes an external extension without exposing its concrete
 // configuration or runtime behavior to the core. Definitions are immutable

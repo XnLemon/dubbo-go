@@ -27,6 +27,7 @@ import (
 	"github.com/dubbogo/gost/log/logger"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 import (
@@ -46,7 +47,10 @@ func TestProtocolFilterWrapperExport(t *testing.T) {
 
 	u := common.NewURLWithOptions(
 		common.WithParams(url.Values{}),
-		common.WithParamsValue(constant.ServiceFilterKey, mockFilterKey))
+		common.WithAttribute(extension.FilterSpecsAttributeKey, []extension.FilterSpec{{
+			ID:      mockFilterKey,
+			Factory: newFilter,
+		}}))
 	exporter := filtProto.Export(base.NewBaseInvoker(u))
 	_, ok := exporter.GetInvoker().(*FilterInvoker)
 	assert.True(t, ok)
@@ -58,15 +62,36 @@ func TestProtocolFilterWrapperRefer(t *testing.T) {
 
 	u := common.NewURLWithOptions(
 		common.WithParams(url.Values{}),
-		common.WithParamsValue(constant.ReferenceFilterKey, mockFilterKey))
+		common.WithAttribute(extension.FilterSpecsAttributeKey, []extension.FilterSpec{{
+			ID:      mockFilterKey,
+			Factory: newFilter,
+		}}))
 	invoker := filtProto.Refer(u)
 	_, ok := invoker.(*FilterInvoker)
 	assert.True(t, ok)
 }
 
-// The initialization of mockEchoFilter, for test
-func init() {
-	extension.SetFilter(mockFilterKey, newFilter)
+func TestProtocolFilterWrapperIgnoresLegacyFilterNames(t *testing.T) {
+	filtProto := extension.GetProtocol(FILTER)
+	filtProto.(*ProtocolFilterWrapper).protocol = &base.BaseProtocol{}
+	u := common.NewURLWithOptions(
+		common.WithParams(url.Values{constant.ReferenceFilterKey: []string{mockFilterKey}}),
+	)
+
+	invoker := filtProto.Refer(u)
+	_, wrapped := invoker.(*FilterInvoker)
+	assert.False(t, wrapped)
+}
+
+func TestBuildInvokerChainRejectsNilFactoryResult(t *testing.T) {
+	invoker, err := BuildInvokerChain(base.NewBaseInvoker(&common.URL{}), []extension.FilterSpec{{
+		ID:      "test:nil",
+		Factory: func() filter.Filter { return nil },
+	}})
+
+	require.Error(t, err)
+	assert.Nil(t, invoker)
+	assert.Contains(t, err.Error(), "returned nil")
 }
 
 type mockEchoFilter struct{}

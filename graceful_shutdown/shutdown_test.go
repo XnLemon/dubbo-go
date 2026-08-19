@@ -130,10 +130,10 @@ func TestInit(t *testing.T) {
 	mockProviderFilter.On("Set", mock.Anything, mock.Anything).Return()
 
 	// Register mock filters
-	extension.SetFilter(constant.GracefulShutdownConsumerFilterKey, func() filter.Filter {
+	extension.RegisterFrameworkFilter(constant.GracefulShutdownConsumerFilterKey, func() filter.Filter {
 		return mockConsumerFilter
 	})
-	extension.SetFilter(constant.GracefulShutdownProviderFilterKey, func() filter.Filter {
+	extension.RegisterFrameworkFilter(constant.GracefulShutdownProviderFilterKey, func() filter.Filter {
 		return mockProviderFilter
 	})
 
@@ -145,8 +145,8 @@ func TestInit(t *testing.T) {
 	Init(WithTimeout(customTimeout))
 
 	// Remove mock filters
-	extension.UnregisterFilter(constant.GracefulShutdownConsumerFilterKey)
-	extension.UnregisterFilter(constant.GracefulShutdownProviderFilterKey)
+	extension.UnregisterFrameworkFilter(constant.GracefulShutdownConsumerFilterKey)
+	extension.UnregisterFrameworkFilter(constant.GracefulShutdownProviderFilterKey)
 }
 
 func TestInitReturnsWhenGracefulShutdownFilterMissing(t *testing.T) {
@@ -155,12 +155,12 @@ func TestInitReturnsWhenGracefulShutdownFilterMissing(t *testing.T) {
 	mockConsumerFilter := &MockFilter{}
 	mockConsumerFilter.On("Set", mock.Anything, mock.Anything).Return()
 
-	extension.SetFilter(constant.GracefulShutdownConsumerFilterKey, func() filter.Filter {
+	extension.RegisterFrameworkFilter(constant.GracefulShutdownConsumerFilterKey, func() filter.Filter {
 		return mockConsumerFilter
 	})
-	extension.UnregisterFilter(constant.GracefulShutdownProviderFilterKey)
+	extension.UnregisterFrameworkFilter(constant.GracefulShutdownProviderFilterKey)
 	t.Cleanup(func() {
-		extension.UnregisterFilter(constant.GracefulShutdownConsumerFilterKey)
+		extension.UnregisterFrameworkFilter(constant.GracefulShutdownConsumerFilterKey)
 	})
 
 	notifyCalled := atomic.Bool{}

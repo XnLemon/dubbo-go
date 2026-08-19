@@ -85,11 +85,11 @@ func Init(opts ...Option) {
 		}
 
 		// retrieve ShutdownConfig for gracefulShutdownFilter
-		gracefulShutdownConsumerFilter, exist := extension.GetFilter(constant.GracefulShutdownConsumerFilterKey)
+		gracefulShutdownConsumerFilter, exist := extension.NewFrameworkFilter(constant.GracefulShutdownConsumerFilterKey)
 		if !exist {
 			return
 		}
-		gracefulShutdownProviderFilter, exist := extension.GetFilter(constant.GracefulShutdownProviderFilterKey)
+		gracefulShutdownProviderFilter, exist := extension.NewFrameworkFilter(constant.GracefulShutdownProviderFilterKey)
 		if !exist {
 			return
 		}

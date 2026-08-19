@@ -92,6 +92,7 @@ type runtimeEntry struct {
 type Runtime struct {
 	mu      sync.RWMutex
 	entries []runtimeEntry
+	bound   map[string][]FilterSpec
 	closed  bool
 }
 
@@ -159,7 +160,7 @@ func (p Plan) Build(scope Scope, role common.RoleType) (*Runtime, error) {
 	}
 	sort.Strings(prefixes)
 
-	runtime := &Runtime{}
+	runtime := &Runtime{bound: make(map[string][]FilterSpec)}
 	for _, prefix := range prefixes {
 		definition := definitionsSnapshot[prefix]
 		if !definition.Supports(scope) {
@@ -196,6 +197,104 @@ func (p Plan) Build(scope Scope, role common.RoleType) (*Runtime, error) {
 	}
 
 	return runtime, nil
+}
+
+// BindResource resolves and validates extension filter contributions for one
+// canonical RPC resource. Results are cached by service key and method. The
+// base lifecycle Context remains unchanged; each callback receives a copy.
+func (r *Runtime) BindResource(resource Resource) ([]FilterSpec, error) {
+	if r == nil {
+		return nil, nil
+	}
+	if err := resource.Validate(); err != nil {
+		return nil, err
+	}
+	identity := resource.ServiceKey + "\x00" + resource.Method
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.closed {
+		return nil, fmt.Errorf("extension: runtime is closed for resource %q", resource.ServiceKey)
+	}
+	if specs, ok := r.bound[identity]; ok {
+		return append([]FilterSpec(nil), specs...), nil
+	}
+
+	type ownedSpec struct {
+		prefix string
+		spec   FilterSpec
+	}
+	owned := make([]ownedSpec, 0)
+	ownerByID := make(map[string]string)
+	for _, entry := range r.entries {
+		if entry.definition.Filters == nil {
+			continue
+		}
+		context := *entry.context
+		resourceCopy := resource
+		context.Resource = &resourceCopy
+		specs, err := entry.definition.Filters(&context)
+		if err != nil {
+			return nil, fmt.Errorf("extension %q: bind filters for resource %q: %w", entry.definition.Prefix, resource.ServiceKey, err)
+		}
+		seen := make(map[string]struct{})
+		for index, spec := range specs {
+			spec.ID = strings.TrimSpace(spec.ID)
+			if spec.ID == "" {
+				return nil, fmt.Errorf("extension %q: filter spec %d has an empty ID for resource %q", entry.definition.Prefix, index, resource.ServiceKey)
+			}
+			if spec.Factory == nil {
+				return nil, fmt.Errorf("extension %q: filter spec %q has a nil Factory for resource %q", entry.definition.Prefix, spec.ID, resource.ServiceKey)
+			}
+			if _, duplicate := seen[spec.ID]; duplicate {
+				continue
+			}
+			seen[spec.ID] = struct{}{}
+			if owner, conflict := ownerByID[spec.ID]; conflict {
+				return nil, fmt.Errorf("extension filters %q and %q contribute duplicate ID %q for resource %q", owner, entry.definition.Prefix, spec.ID, resource.ServiceKey)
+			}
+			ownerByID[spec.ID] = entry.definition.Prefix
+			owned = append(owned, ownedSpec{prefix: entry.definition.Prefix, spec: spec})
+		}
+	}
+	// Prefix order and callback order are already deterministic; stable sorting
+	// preserves both for equal Order values.
+	sort.SliceStable(owned, func(i, j int) bool {
+		return owned[i].spec.Order < owned[j].spec.Order
+	})
+	specs := make([]FilterSpec, 0, len(owned))
+	for _, item := range owned {
+		specs = append(specs, item.spec)
+	}
+	r.bound[identity] = append([]FilterSpec(nil), specs...)
+	return specs, nil
+}
+
+// MergeFilterSpecs combines framework and external filter contributions,
+// validates IDs and factories, and performs a stable Order sort.
+func MergeFilterSpecs(groups ...[]FilterSpec) ([]FilterSpec, error) {
+	merged := make([]FilterSpec, 0)
+	seen := make(map[string]struct{})
+	for _, group := range groups {
+		for index, spec := range group {
+			spec.ID = strings.TrimSpace(spec.ID)
+			if spec.ID == "" {
+				return nil, fmt.Errorf("extension: filter spec %d has an empty ID", index)
+			}
+			if spec.Factory == nil {
+				return nil, fmt.Errorf("extension: filter spec %q has a nil Factory", spec.ID)
+			}
+			if _, duplicate := seen[spec.ID]; duplicate {
+				return nil, fmt.Errorf("extension: duplicate filter spec ID %q", spec.ID)
+			}
+			seen[spec.ID] = struct{}{}
+			merged = append(merged, spec)
+		}
+	}
+	sort.SliceStable(merged, func(i, j int) bool {
+		return merged[i].Order < merged[j].Order
+	})
+	return merged, nil
 }
 
 func cloneDefinitions(source map[string]Definition) map[string]Definition {

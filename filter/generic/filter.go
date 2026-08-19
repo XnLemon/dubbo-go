@@ -45,7 +45,7 @@ var (
 )
 
 func init() {
-	extension.SetFilter(constant.GenericFilterKey, newGenericFilter)
+	extension.RegisterFrameworkFilter(constant.GenericFilterKey, newGenericFilter)
 }
 
 // genericFilter ensures the structs are converted to maps, this filter is for consumer
