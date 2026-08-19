@@ -216,3 +216,20 @@ func TestGetExtensionRawConfigResolvesProfilePlaceholdersFromBase(t *testing.T) 
 	require.True(t, ok)
 	assert.Equal(t, 2300, timeout.Value())
 }
+
+func TestGetExtensionRawConfigResolvesProfileOverridesInBasePlaceholders(t *testing.T) {
+	tmp := t.TempDir()
+	basePath := writeFile(t, tmp, "dubbogo.yaml", "dubbo:\n  profiles:\n    active: dev\n  application:\n    timeout: 2300\n  extensions:\n    hystrix:\n      consumer:\n        'greet.GreetService:::Greet':\n          timeout: '${dubbo.application.timeout}'\n")
+	writeFile(t, tmp, "dubbogo-dev.yaml", "dubbo:\n  application:\n    timeout: 2400\n")
+
+	conf := NewLoaderConf(WithPath(basePath))
+	raw, found, err := GetExtensionRawConfig(conf.MergeConfig(GetConfigResolver(conf)), "hystrix", "consumer")
+	require.NoError(t, err)
+	require.True(t, found)
+
+	resource, ok := raw.Selected.Child("greet.GreetService:::Greet")
+	require.True(t, ok)
+	timeout, ok := resource.Child("timeout")
+	require.True(t, ok)
+	assert.Equal(t, 2400, timeout.Value())
+}

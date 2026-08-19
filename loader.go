@@ -341,12 +341,14 @@ func (conf *loaderConf) MergeConfig(koan *koanf.Koanf) *koanf.Koanf {
 			logger.Debugf("[Loader] config file=%s not exist, skip config merge", path)
 			return koan
 		}
+		baseKoan := getConfigResolver(conf, false)
 		activeConf = NewLoaderConf(WithPath(path))
 		activeKoan = getConfigResolver(activeConf, false)
-		if err := koan.Merge(activeKoan); err != nil {
+		if err := baseKoan.Merge(activeKoan); err != nil {
 			logger.Debugf("[Loader] config merge error, err=%s", err)
+			return koan
 		}
-		return resolvePlaceholder(koan)
+		return resolvePlaceholder(baseKoan)
 	}
 	return koan
 }
