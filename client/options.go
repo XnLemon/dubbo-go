@@ -60,6 +60,7 @@ type ReferenceOptions struct {
 	urls         []*common.URL
 	metaDataType string
 	info         *ClientInfo
+	filterSpecs  []extension.FilterSpec
 }
 
 func defaultReferenceOptions() *ReferenceOptions {
@@ -170,15 +171,6 @@ func WithCheck() ReferenceOption {
 func WithURL(url string) ReferenceOption {
 	return func(opts *ReferenceOptions) {
 		opts.Reference.URL = url
-	}
-}
-
-// WithFilter selects the consumer filter chain that wraps invocations for this reference.
-// The value is a comma-separated list of registered filter names, in execution order. Use it
-// to add cross-cutting behavior such as tracing, metrics, authentication, or custom middleware.
-func WithFilter(filter string) ReferenceOption {
-	return func(opts *ReferenceOptions) {
-		opts.Reference.Filter = filter
 	}
 }
 
@@ -743,9 +735,6 @@ func (cliOpts *ClientOptions) init(opts ...ClientOption) error {
 
 	// init overallReference from Consumer config
 	if consumerConf != nil {
-		if cliOpts.overallReference.Filter == "" {
-			cliOpts.overallReference.Filter = consumerConf.Filter
-		}
 		if len(cliOpts.overallReference.RegistryIDs) <= 0 {
 			cliOpts.overallReference.RegistryIDs = consumerConf.RegistryIDs
 		}
@@ -796,17 +785,6 @@ func WithClientNoCheck() ClientOption {
 func WithClientURL(url string) ClientOption {
 	return func(opts *ClientOptions) {
 		opts.overallReference.URL = url
-	}
-}
-
-// WithClientFilter selects the comma-separated consumer filter chain applied to references
-// by default. Use it for cross-cutting behavior shared by all calls, such as tracing or
-// authentication. A reference-level WithFilter replaces it for one service.
-//
-// todo(DMwangnima): change Filter Option like Cluster and LoadBalance
-func WithClientFilter(filter string) ClientOption {
-	return func(opts *ClientOptions) {
-		opts.overallReference.Filter = filter
 	}
 }
 

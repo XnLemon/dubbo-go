@@ -19,8 +19,8 @@ package protocolwrapper
 
 import (
 	"context"
+	"fmt"
 	"slices"
-	"strings"
 )
 
 import (
@@ -29,7 +29,6 @@ import (
 
 import (
 	"dubbo.apache.org/dubbo-go/v3/common"
-	"dubbo.apache.org/dubbo-go/v3/common/constant"
 	"dubbo.apache.org/dubbo-go/v3/common/extension"
 	"dubbo.apache.org/dubbo-go/v3/filter"
 	"dubbo.apache.org/dubbo-go/v3/protocol/base"
@@ -56,7 +55,15 @@ func (pfw *ProtocolFilterWrapper) Export(invoker base.Invoker) base.Exporter {
 	if pfw.protocol == nil {
 		pfw.protocol = extension.GetProtocol(invoker.GetURL().Protocol)
 	}
-	invoker = BuildInvokerChain(invoker, constant.ServiceFilterKey)
+	var err error
+	specs, err := filterSpecs(invoker.GetURL())
+	if err == nil {
+		invoker, err = BuildInvokerChain(invoker, specs)
+	}
+	if err != nil {
+		logger.Errorf("[Protocol][Wrapper] build provider filter chain failed, err=%v", err)
+		return nil
+	}
 	return pfw.protocol.Export(invoker)
 }
 
@@ -69,7 +76,15 @@ func (pfw *ProtocolFilterWrapper) Refer(url *common.URL) base.Invoker {
 	if invoker == nil {
 		return nil
 	}
-	return BuildInvokerChain(invoker, constant.ReferenceFilterKey)
+	specs, err := filterSpecs(url)
+	if err == nil {
+		invoker, err = BuildInvokerChain(invoker, specs)
+	}
+	if err != nil {
+		logger.Errorf("[Protocol][Wrapper] build consumer filter chain failed, err=%v", err)
+		return nil
+	}
+	return invoker
 }
 
 // Destroy will destroy all invoker and exporter.
@@ -77,30 +92,48 @@ func (pfw *ProtocolFilterWrapper) Destroy() {
 	pfw.protocol.Destroy()
 }
 
-func BuildInvokerChain(invoker base.Invoker, key string) base.Invoker {
-	filterName := invoker.GetURL().GetParam(key, "")
-	if filterName == "" {
-		return invoker
+// BuildInvokerChain creates a chain from resolved FilterSpecs. It never reads
+// filter names from URL parameters or the global extension registry.
+func BuildInvokerChain(invoker base.Invoker, specs []extension.FilterSpec) (base.Invoker, error) {
+	if len(specs) == 0 {
+		return invoker, nil
 	}
-	filterNames := strings.Split(filterName, ",")
+	validated, err := extension.MergeFilterSpecs(specs)
+	if err != nil {
+		return nil, err
+	}
 
 	// The order of filters is from left to right, so loading from right to left
 	next := invoker
-	for _, filterName := range slices.Backward(filterNames) {
-		flt, _ := extension.GetFilter(strings.TrimSpace(filterName))
+	ids := make([]string, 0, len(validated))
+	for _, spec := range validated {
+		ids = append(ids, spec.ID)
+	}
+	for _, spec := range slices.Backward(validated) {
+		flt := spec.Factory()
+		if flt == nil {
+			return nil, fmt.Errorf("filter spec %q Factory returned nil", spec.ID)
+		}
 		fi := &FilterInvoker{next: next, invoker: invoker, filter: flt}
 		next = fi
 	}
-	switch key {
-	case constant.ServiceFilterKey:
-		logger.Debugf("[Protocol][Wrapper] The provider invocation link is %s, invoker: %s",
-			strings.Join(append(filterNames, "proxyInvoker"), " -> "), invoker)
-	case constant.ReferenceFilterKey:
-		logger.Debugf("[Protocol][Wrapper] The consumer filters are %s, invoker: %s",
-			strings.Join(append(filterNames, "proxyInvoker"), " -> "), invoker)
-	}
+	logger.Debugf("[Protocol][Wrapper] filter chain IDs=%v, invoker=%s", ids, invoker)
+	return next, nil
+}
 
-	return next
+func filterSpecs(url *common.URL) ([]extension.FilterSpec, error) {
+	if url == nil {
+		return nil, nil
+	}
+	value, ok := url.GetAttribute(extension.FilterSpecsAttributeKey)
+	if !ok {
+		return nil, nil
+	}
+	specs, ok := value.([]extension.FilterSpec)
+	if !ok {
+		return nil, fmt.Errorf("filter specs attribute has unexpected type %T", value)
+	}
+	return specs, nil
 }
 
 // GetProtocol returns a Protocol that applies filter chains around another protocol.

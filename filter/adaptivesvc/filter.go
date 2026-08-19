@@ -50,7 +50,7 @@ var (
 )
 
 func init() {
-	extension.SetFilter(constant.AdaptiveServiceProviderFilterKey, newAdaptiveServiceProviderFilter)
+	extension.RegisterFrameworkFilter(constant.AdaptiveServiceProviderFilterKey, newAdaptiveServiceProviderFilter)
 }
 
 // adaptiveServiceProviderFilter is for adaptive service on the provider side.

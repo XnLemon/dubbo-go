@@ -40,7 +40,7 @@ var (
 )
 
 func init() {
-	extension.SetFilter(constant.AuthProviderFilterKey, newAuthFilter)
+	extension.RegisterFrameworkFilter(constant.AuthProviderFilterKey, newAuthFilter)
 }
 
 // authFilter verifies the correctness of the signature on provider side

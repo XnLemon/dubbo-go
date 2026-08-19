@@ -42,7 +42,7 @@ var (
 )
 
 func init() {
-	extension.SetFilter(constant.TokenFilterKey, newTokenFilter)
+	extension.RegisterFrameworkFilter(constant.TokenFilterKey, newTokenFilter)
 }
 
 const (

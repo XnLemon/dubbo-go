@@ -83,22 +83,6 @@ func TestWithClientCheck(t *testing.T) {
 	processNewClientCases(t, cases)
 }
 
-func TestWithClientFilter(t *testing.T) {
-	cases := []newClientCase{
-		{
-			desc: "config normal filter",
-			opts: []ClientOption{
-				WithClientFilter("test_filter"),
-			},
-			verify: func(t *testing.T, cli *Client, err error) {
-				require.NoError(t, err)
-				assert.Equal(t, "test_filter", cli.cliOpts.overallReference.Filter)
-			},
-		},
-	}
-	processNewClientCases(t, cases)
-}
-
 func TestWithClientRegistryIDs(t *testing.T) {
 	cases := []newClientCase{
 		{
@@ -743,22 +727,6 @@ func TestWithGenericType(t *testing.T) {
 	processReferenceOptionsInitCases(t, cases)
 }
 
-func TestWithFilter(t *testing.T) {
-	cases := []referenceOptionsInitCase{
-		{
-			desc: "config normal filter",
-			opts: []ReferenceOption{
-				WithFilter("test_filter"),
-			},
-			verify: func(t *testing.T, refOpts *ReferenceOptions, err error) {
-				require.NoError(t, err)
-				assert.Equal(t, "test_filter", refOpts.Reference.Filter)
-			},
-		},
-	}
-	processReferenceOptionsInitCases(t, cases)
-}
-
 func TestWithRegistryIDs(t *testing.T) {
 	cases := []referenceOptionsInitCase{
 		{
@@ -1318,7 +1286,7 @@ func TestInitWithConsumer(t *testing.T) {
 	}
 
 	ref := cliOpts.overallReference
-	if ref.Filter != "f" || ref.TracingKey != "t" ||
+	if ref.Filter != "" || ref.TracingKey != "t" ||
 		len(ref.RegistryIDs) != 1 || ref.RegistryIDs[0] != "r" ||
 		ref.Check == nil || *ref.Check != true {
 		t.Errorf("fields not copied as expected: %+v", ref)

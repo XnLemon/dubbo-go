@@ -127,7 +127,6 @@ func (ins *Instance) NewClient(opts ...client.ClientOption) (*client.Client, err
 		// these options come from Consumer and Root.
 		// for dubbo-go developers, referring config/ConsumerConfig.Init and config/ReferenceConfig
 		cliOpts = append(cliOpts,
-			client.WithClientFilter(conCfg.Filter),
 			// todo(DMwangnima): deal with Protocol
 			client.WithClientRegistryIDs(conCfg.RegistryIDs...),
 			// todo(DMwangnima): deal with TracingKey

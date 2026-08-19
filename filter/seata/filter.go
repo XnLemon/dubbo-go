@@ -46,7 +46,7 @@ var (
 )
 
 func init() {
-	extension.SetFilter(constant.SeataFilterKey, newSeataFilter)
+	extension.RegisterFrameworkFilter(constant.SeataFilterKey, newSeataFilter)
 }
 
 type seataFilter struct{}

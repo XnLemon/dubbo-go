@@ -37,7 +37,6 @@ import (
 import (
 	"dubbo.apache.org/dubbo-go/v3/cluster/directory/static"
 	"dubbo.apache.org/dubbo-go/v3/common"
-	commonCfg "dubbo.apache.org/dubbo-go/v3/common/config"
 	"dubbo.apache.org/dubbo-go/v3/common/constant"
 	"dubbo.apache.org/dubbo-go/v3/common/extension"
 	"dubbo.apache.org/dubbo-go/v3/global"
@@ -157,6 +156,7 @@ func (refOpts *ReferenceOptions) refer(srv common.RPCService, info *ClientInfo) 
 		common.WithAttribute(constant.ProtocolConfigKey, ref.Protocol),
 		common.WithAttribute(constant.RegistriesConfigKey, refOpts.Registries),
 		common.WithAttribute(constant.RoutersConfigKey, refOpts.Routers),
+		common.WithAttribute(extension.FilterSpecsAttributeKey, refOpts.filterSpecs),
 	)
 
 	// for new triple IDL mode
@@ -298,14 +298,10 @@ func buildInvoker(urls []*common.URL, ref *global.ReferenceConfig) (base.Invoker
 
 	invokers := make([]base.Invoker, len(urls))
 	for i, u := range urls {
-		if u.Protocol == constant.ServiceRegistryProtocol {
+		if u.Protocol == constant.ServiceRegistryProtocol || u.Protocol == constant.RegistryProtocol {
 			invoker = extension.GetProtocol(constant.RegistryProtocol).Refer(u)
 		} else {
-			invoker = extension.GetProtocol(u.Protocol).Refer(u)
-		}
-
-		if ref.URL != "" {
-			invoker = protocolwrapper.BuildInvokerChain(invoker, constant.ReferenceFilterKey)
+			invoker = extension.GetProtocol(protocolwrapper.FILTER).Refer(u)
 		}
 
 		if u.Protocol == constant.RegistryProtocol {
@@ -389,8 +385,6 @@ func (refOpts *ReferenceOptions) GetProxy() *proxy.Proxy {
 func (refOpts *ReferenceOptions) getURLMap() url.Values {
 	ref := refOpts.Reference
 	app := refOpts.Application
-	metrics := refOpts.Metrics
-	tracing := refOpts.Otel.TracingConfig
 
 	urlMap := url.Values{}
 	// first set user params
@@ -430,19 +424,6 @@ func (refOpts *ReferenceOptions) getURLMap() url.Values {
 		urlMap.Set(constant.OwnerKey, app.Owner)
 		urlMap.Set(constant.EnvironmentKey, app.Environment)
 	}
-
-	// filter
-	defaultReferenceFilter := constant.DefaultReferenceFilters
-	if ref.Generic != "" {
-		defaultReferenceFilter = constant.GenericFilterKey + "," + defaultReferenceFilter
-	}
-	if metrics.Enable != nil && *metrics.Enable {
-		defaultReferenceFilter += fmt.Sprintf(",%s", constant.MetricsFilterKey)
-	}
-	if tracing.Enable != nil && *tracing.Enable {
-		defaultReferenceFilter += fmt.Sprintf(",%s", constant.OTELClientTraceKey)
-	}
-	urlMap.Set(constant.ReferenceFilterKey, commonCfg.MergeValue(ref.Filter, "", defaultReferenceFilter))
 
 	for _, v := range ref.MethodsConfig {
 		urlMap.Set("methods."+v.Name+"."+constant.LoadbalanceKey, v.LoadBalance)

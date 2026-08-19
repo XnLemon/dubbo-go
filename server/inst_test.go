@@ -155,7 +155,6 @@ func registerAndExportNewConfigAPIService(t *testing.T, srv *dubboserver.Server)
 		svcInfo,
 		dubboserver.WithInterface(newConfigAPIServiceName),
 		dubboserver.WithNotRegister(),
-		dubboserver.WithFilter("echo"),
 	)
 	require.NoError(t, err)
 
