@@ -39,6 +39,7 @@ import (
 	commonCfg "dubbo.apache.org/dubbo-go/v3/common/config"
 	"dubbo.apache.org/dubbo-go/v3/common/constant"
 	"dubbo.apache.org/dubbo-go/v3/common/dubboutil"
+	"dubbo.apache.org/dubbo-go/v3/common/extension"
 	aslimiter "dubbo.apache.org/dubbo-go/v3/filter/adaptivesvc/limiter"
 	"dubbo.apache.org/dubbo-go/v3/global"
 	"dubbo.apache.org/dubbo-go/v3/graceful_shutdown"
@@ -59,16 +60,19 @@ type ServerOptions struct {
 	Metrics     *global.MetricsConfig
 	Otel        *global.OtelConfig
 	TLS         *global.TLSConfig
+
+	extensionPlan extension.Plan
 }
 
 func defaultServerOptions() *ServerOptions {
 	return &ServerOptions{
-		Application: global.DefaultApplicationConfig(),
-		Provider:    global.DefaultProviderConfig(),
-		Shutdown:    global.DefaultShutdownConfig(),
-		Metrics:     global.DefaultMetricsConfig(),
-		Otel:        global.DefaultOtelConfig(),
-		TLS:         global.DefaultTLSConfig(),
+		Application:   global.DefaultApplicationConfig(),
+		Provider:      global.DefaultProviderConfig(),
+		Shutdown:      global.DefaultShutdownConfig(),
+		Metrics:       global.DefaultMetricsConfig(),
+		Otel:          global.DefaultOtelConfig(),
+		TLS:           global.DefaultTLSConfig(),
+		extensionPlan: extension.NewPlan(nil),
 	}
 }
 
@@ -121,6 +125,23 @@ func (srvOpts *ServerOptions) init(opts ...ServerOption) error {
 }
 
 type ServerOption func(*ServerOptions)
+
+// WithExtension declares typed extension options for this Server lifecycle.
+// The core supplies ServerScope and the provider role; extension options only
+// describe configuration and must not choose their own lifecycle location.
+func WithExtension(options ...extension.Option) ServerOption {
+	return func(opts *ServerOptions) {
+		opts.extensionPlan = opts.extensionPlan.Derive(options...)
+	}
+}
+
+// SetExtensionPlan installs an inherited immutable extension plan before local
+// Server options are applied. It is used by dubbo.Instance child creation.
+func SetExtensionPlan(plan extension.Plan) ServerOption {
+	return func(opts *ServerOptions) {
+		opts.extensionPlan = plan
+	}
+}
 
 // ---------- For user ----------
 

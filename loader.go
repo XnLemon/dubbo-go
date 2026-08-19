@@ -23,6 +23,7 @@ import (
 	"reflect"
 	"runtime"
 	"slices"
+	"sort"
 	"strings"
 	"sync"
 )
@@ -78,6 +79,8 @@ func Load(opts ...LoaderConfOption) error {
 			newOpts, koanf.UnmarshalConf{Tag: "yaml"}); err != nil {
 			return err
 		}
+		newOpts.extensionPlan = extension.NewPlan(extensionRawConfigResolver(koan), newOpts.extensionPlan.Options()...).
+			WithRawConfigPrefixes(extensionRawConfigPrefixes(koan)...)
 	}
 
 	if err := newOpts.init(); err != nil {
@@ -88,7 +91,11 @@ func Load(opts ...LoaderConfOption) error {
 	instanceOptions = newOpts
 	instanceOptionsMutex.Unlock()
 
-	instance := &Instance{insOpts: newOpts}
+	runtime, err := newOpts.extensionPlan.Build(extension.InstanceScope, extension.RoleNone)
+	if err != nil {
+		return err
+	}
+	instance := &Instance{insOpts: newOpts, extensionRuntime: runtime}
 	// start the file watcher
 	once.Do(func() {
 		watcher.watcherWg.Add(1)
@@ -429,6 +436,32 @@ func GetExtensionRawConfig(koan *koanf.Koanf, prefix string, selectedKeys ...str
 	}
 
 	return extension.BuildRawConfig(full, selectedKeys...), true, nil
+}
+
+func extensionRawConfigResolver(koan *koanf.Koanf) extension.RawConfigResolver {
+	return func(prefix string, selectedKeys ...string) (extension.RawConfig, bool, error) {
+		return GetExtensionRawConfig(koan, prefix, selectedKeys...)
+	}
+}
+
+func extensionRawConfigPrefixes(koan *koanf.Koanf) []string {
+	if koan == nil {
+		return nil
+	}
+	value, ok := getRawConfigValue(koan.Raw(), "dubbo", "extensions")
+	if !ok {
+		return nil
+	}
+	configured, ok := value.(map[string]any)
+	if !ok {
+		return nil
+	}
+	prefixes := make([]string, 0, len(configured))
+	for prefix := range configured {
+		prefixes = append(prefixes, prefix)
+	}
+	sort.Strings(prefixes)
+	return prefixes
 }
 
 func getRawConfigValue(root map[string]any, path ...string) (any, bool) {

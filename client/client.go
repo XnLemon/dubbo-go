@@ -27,6 +27,7 @@ import (
 import (
 	"dubbo.apache.org/dubbo-go/v3/common"
 	"dubbo.apache.org/dubbo-go/v3/common/constant"
+	"dubbo.apache.org/dubbo-go/v3/common/extension"
 	"dubbo.apache.org/dubbo-go/v3/filter/generic"
 	"dubbo.apache.org/dubbo-go/v3/global"
 	"dubbo.apache.org/dubbo-go/v3/metadata"
@@ -37,7 +38,8 @@ import (
 
 // ConsumerConfig
 type Client struct {
-	cliOpts *ClientOptions
+	cliOpts          *ClientOptions
+	extensionRuntime *extension.Runtime
 }
 
 type ClientInfo struct {
@@ -307,7 +309,20 @@ func NewClient(opts ...ClientOption) (*Client, error) {
 	if err := newCliOpts.init(opts...); err != nil {
 		return nil, err
 	}
+	runtime, err := newCliOpts.extensionPlan.Build(extension.ClientScope, common.CONSUMER)
+	if err != nil {
+		return nil, err
+	}
 	return &Client{
-		cliOpts: newCliOpts,
+		cliOpts:          newCliOpts,
+		extensionRuntime: runtime,
 	}, nil
+}
+
+// CloseExtensions releases this Client's extension Runtime. It is idempotent.
+func (cli *Client) CloseExtensions() error {
+	if cli == nil {
+		return nil
+	}
+	return cli.extensionRuntime.Close()
 }
