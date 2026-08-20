@@ -29,6 +29,7 @@ import (
 import (
 	"dubbo.apache.org/dubbo-go/v3/client"
 	"dubbo.apache.org/dubbo-go/v3/common"
+	"dubbo.apache.org/dubbo-go/v3/common/extension"
 	"dubbo.apache.org/dubbo-go/v3/global"
 	"dubbo.apache.org/dubbo-go/v3/server"
 )
@@ -48,7 +49,8 @@ var (
 // ins, err := NewInstance()
 // cli, err := ins.NewClient()
 type Instance struct {
-	insOpts *InstanceOptions
+	insOpts          *InstanceOptions
+	extensionRuntime *extension.Runtime
 }
 
 // NewInstance receives InstanceOption and initializes RootConfig. There are some processing
@@ -58,8 +60,12 @@ func NewInstance(opts ...InstanceOption) (*Instance, error) {
 	if err := newInsOpts.init(opts...); err != nil {
 		return nil, err
 	}
+	runtime, err := newInsOpts.extensionPlan.Build(extension.InstanceScope, extension.RoleNone)
+	if err != nil {
+		return nil, err
+	}
 
-	return &Instance{insOpts: newInsOpts}, nil
+	return &Instance{insOpts: newInsOpts, extensionRuntime: runtime}, nil
 }
 
 // GetOptionsSnapshot returns a detached snapshot of this instance's options.
@@ -103,6 +109,7 @@ func (ins *Instance) NewClient(opts ...client.ClientOption) (*client.Client, err
 	}
 
 	var cliOpts []client.ClientOption
+	cliOpts = append(cliOpts, client.SetExtensionPlan(ins.insOpts.extensionPlan))
 	conCfg := ins.insOpts.CloneConsumer()
 	appCfg := ins.insOpts.CloneApplication()
 	regsCfg := ins.insOpts.CloneRegistries()
@@ -169,6 +176,7 @@ func (ins *Instance) NewServer(opts ...server.ServerOption) (*server.Server, err
 	}
 
 	var srvOpts []server.ServerOption
+	srvOpts = append(srvOpts, server.SetExtensionPlan(ins.insOpts.extensionPlan))
 	appCfg := ins.insOpts.CloneApplication()
 	regsCfg := ins.insOpts.CloneRegistries()
 	prosCfg := ins.insOpts.CloneProtocols()
@@ -222,6 +230,15 @@ func (ins *Instance) NewServer(opts ...server.ServerOption) (*server.Server, err
 		return nil, err
 	}
 	return srv, nil
+}
+
+// CloseExtensions releases this Instance's extension Runtime. It is
+// idempotent and does not close child Client or Server Runtimes.
+func (ins *Instance) CloseExtensions() error {
+	if ins == nil {
+		return nil
+	}
+	return ins.extensionRuntime.Close()
 }
 
 func (ins *Instance) start() (err error) {

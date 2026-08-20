@@ -31,6 +31,7 @@ import (
 	"dubbo.apache.org/dubbo-go/v3/common"
 	commonCfg "dubbo.apache.org/dubbo-go/v3/common/config"
 	"dubbo.apache.org/dubbo-go/v3/common/constant"
+	"dubbo.apache.org/dubbo-go/v3/common/extension"
 	"dubbo.apache.org/dubbo-go/v3/global"
 	"dubbo.apache.org/dubbo-go/v3/graceful_shutdown"
 	"dubbo.apache.org/dubbo-go/v3/internal"
@@ -680,6 +681,7 @@ type ClientOptions struct {
 	Routers     []*global.RouterConfig
 
 	overallReference *global.ReferenceConfig
+	extensionPlan    extension.Plan
 }
 
 func defaultClientOptions() *ClientOptions {
@@ -692,6 +694,7 @@ func defaultClientOptions() *ClientOptions {
 		Otel:             global.DefaultOtelConfig(),
 		TLS:              global.DefaultTLSConfig(),
 		overallReference: global.DefaultReferenceConfig(),
+		extensionPlan:    extension.NewPlan(nil),
 	}
 }
 
@@ -759,6 +762,23 @@ func (cliOpts *ClientOptions) init(opts ...ClientOption) error {
 }
 
 type ClientOption func(*ClientOptions)
+
+// WithExtension declares typed extension options for this Client lifecycle.
+// The core supplies ClientScope and the consumer role; extension options only
+// describe configuration and must not choose their own lifecycle location.
+func WithExtension(options ...extension.Option) ClientOption {
+	return func(opts *ClientOptions) {
+		opts.extensionPlan = opts.extensionPlan.Derive(options...)
+	}
+}
+
+// SetExtensionPlan installs an inherited immutable extension plan before local
+// Client options are applied. It is used by dubbo.Instance child creation.
+func SetExtensionPlan(plan extension.Plan) ClientOption {
+	return func(opts *ClientOptions) {
+		opts.extensionPlan = plan
+	}
+}
 
 // WithClientNoCheck allows client references to initialize even when no provider is currently
 // available, so applications can start before their dependencies. Calls still fail until a

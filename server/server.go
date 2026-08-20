@@ -38,6 +38,7 @@ import (
 	"dubbo.apache.org/dubbo-go/v3/common"
 	"dubbo.apache.org/dubbo-go/v3/common/constant"
 	"dubbo.apache.org/dubbo-go/v3/common/dubboutil"
+	"dubbo.apache.org/dubbo-go/v3/common/extension"
 	"dubbo.apache.org/dubbo-go/v3/graceful_shutdown"
 	"dubbo.apache.org/dubbo-go/v3/metadata"
 	"dubbo.apache.org/dubbo-go/v3/metrics/probe"
@@ -50,6 +51,8 @@ var internalProLock sync.Mutex
 
 type Server struct {
 	cfg *ServerOptions
+
+	extensionRuntime *extension.Runtime
 
 	mu sync.RWMutex
 	// key: *ServiceOptions, value: *common.ServiceInfo
@@ -568,13 +571,26 @@ func NewServer(opts ...ServerOption) (*Server, error) {
 	if err := newSrvOpts.init(opts...); err != nil {
 		return nil, err
 	}
+	runtime, err := newSrvOpts.extensionPlan.Build(extension.ServerScope, common.PROVIDER)
+	if err != nil {
+		return nil, err
+	}
 
 	srv := &Server{
 		cfg:                   newSrvOpts,
+		extensionRuntime:      runtime,
 		svcOptsMap:            make(map[string]*ServiceOptions),
 		interfaceNameServices: make(map[string]*ServiceOptions),
 	}
 	return srv, nil
+}
+
+// CloseExtensions releases this Server's extension Runtime. It is idempotent.
+func (s *Server) CloseExtensions() error {
+	if s == nil {
+		return nil
+	}
+	return s.extensionRuntime.Close()
 }
 
 func SetProviderServices(sd *InternalService) {

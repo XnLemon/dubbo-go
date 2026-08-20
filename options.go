@@ -30,6 +30,7 @@ import (
 import (
 	"dubbo.apache.org/dubbo-go/v3/cluster/router"
 	"dubbo.apache.org/dubbo-go/v3/common/constant"
+	"dubbo.apache.org/dubbo-go/v3/common/extension"
 	"dubbo.apache.org/dubbo-go/v3/config_center"
 	"dubbo.apache.org/dubbo-go/v3/global"
 	"dubbo.apache.org/dubbo-go/v3/graceful_shutdown"
@@ -62,6 +63,8 @@ type InstanceOptions struct {
 	Custom              *global.CustomConfig   `yaml:"custom" json:"custom,omitempty" property:"custom"`
 	Profiles            *global.ProfilesConfig `yaml:"profiles" json:"profiles,omitempty" property:"profiles"`
 	TLSConfig           *global.TLSConfig      `yaml:"tls_config" json:"tls_config,omitempty" property:"tls_config"`
+
+	extensionPlan extension.Plan
 }
 
 func defaultInstanceOptions() *InstanceOptions {
@@ -82,6 +85,7 @@ func defaultInstanceOptions() *InstanceOptions {
 		Custom:         global.DefaultCustomConfig(),
 		Profiles:       global.DefaultProfilesConfig(),
 		TLSConfig:      global.DefaultTLSConfig(),
+		extensionPlan:  extension.NewPlan(nil),
 	}
 }
 
@@ -314,6 +318,15 @@ func (rc *InstanceOptions) Clone() *InstanceOptions {
 }
 
 type InstanceOption func(*InstanceOptions)
+
+// WithExtension declares typed extension options for the Instance lifecycle.
+// InstanceScope always uses RoleNone; extensions that do not declare support
+// for InstanceScope fail during NewInstance.
+func WithExtension(options ...extension.Option) InstanceOption {
+	return func(opts *InstanceOptions) {
+		opts.extensionPlan = opts.extensionPlan.Derive(options...)
+	}
+}
 
 func WithOrganization(organization string) InstanceOption {
 	return func(opts *InstanceOptions) {
