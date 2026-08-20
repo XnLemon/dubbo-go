@@ -92,3 +92,66 @@ func TestDefinitionValidation(t *testing.T) {
 		assert.Error(t, Register(definition))
 	}
 }
+
+func TestNewRawNodePreservesExactKeys(t *testing.T) {
+	root, err := NewRawNode(map[string]any{
+		"consumer": map[string]any{
+			"greet.GreetService:::Greet": map[string]any{
+				"timeout": 1000,
+			},
+		},
+	})
+	require.NoError(t, err)
+
+	selected, ok := SelectRawNode(root, "consumer", "greet.GreetService:::Greet")
+	require.True(t, ok)
+	require.True(t, selected.Present())
+	timeout, ok := selected.Child("timeout")
+	require.True(t, ok)
+	assert.Equal(t, 1000, timeout.Value())
+
+	_, dottedPathLookup := SelectRawNode(root, "consumer", "greet", "GreetService:::Greet")
+	assert.False(t, dottedPathLookup)
+}
+
+func TestRawNodeValueIsDetached(t *testing.T) {
+	root, err := NewRawNode(map[string]any{
+		"consumer": map[string]any{
+			"timeout": 1000,
+		},
+	})
+	require.NoError(t, err)
+
+	value := root.Value().(map[string]any)
+	value["consumer"].(map[string]any)["timeout"] = 2000
+
+	consumer, ok := root.Child("consumer")
+	require.True(t, ok)
+	timeout, ok := consumer.Child("timeout")
+	require.True(t, ok)
+	assert.Equal(t, 1000, timeout.Value())
+}
+
+func TestBuildRawConfigSelectsScopeBranch(t *testing.T) {
+	root, err := NewRawNode(map[string]any{
+		"consumer": map[string]any{"timeout": 1000},
+		"provider": map[string]any{"timeout": 1500},
+	})
+	require.NoError(t, err)
+
+	config := BuildRawConfig(root, "consumer")
+	assert.Same(t, root, config.Full)
+	require.NotNil(t, config.Selected)
+	timeout, ok := config.Selected.Child("timeout")
+	require.True(t, ok)
+	assert.Equal(t, 1000, timeout.Value())
+
+	missing := BuildRawConfig(root, "instance")
+	assert.Nil(t, missing.Selected)
+}
+
+func TestNewRawNodeRejectsNonStringMapKeys(t *testing.T) {
+	_, err := NewRawNode(map[int]string{1: "invalid"})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "map key type")
+}
