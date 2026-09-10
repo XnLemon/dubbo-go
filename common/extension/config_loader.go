@@ -43,28 +43,53 @@ func Initialize(rawConfigs map[string]any, options []Option, scope Scope) ([]str
 	}
 
 	registered := configs.Snapshot()
+	optionsByPrefix, activePrefixes, err := groupOptionsByPrefix(options, registered)
+	if err != nil {
+		return nil, err
+	}
+	rawByPrefix, err := collectRawConfigs(rawConfigs, scope, registered, activePrefixes)
+	if err != nil {
+		return nil, err
+	}
+
+	return initializeConfigs(registered, rawByPrefix, optionsByPrefix, activePrefixes, scope)
+}
+
+func groupOptionsByPrefix(options []Option, registered map[string]Config) (map[string][]Option, map[string]struct{}, error) {
 	optionsByPrefix := make(map[string][]Option)
 	activePrefixes := make(map[string]struct{})
 
 	for index, option := range options {
-		if optionIsNil(option) {
-			return nil, fmt.Errorf("extension: option %d is nil", index)
-		}
-		rawPrefix := option.Prefix()
-		prefix := strings.TrimSpace(rawPrefix)
-		if prefix == "" {
-			return nil, fmt.Errorf("extension: option %d has an empty prefix", index)
-		}
-		if prefix != rawPrefix {
-			return nil, fmt.Errorf("extension: option %d prefix %q must not contain surrounding whitespace", index, rawPrefix)
-		}
-		if _, ok := registered[prefix]; !ok {
-			return nil, fmt.Errorf("extension %q: config is not registered", prefix)
+		prefix, err := validateOptionPrefix(option, index, registered)
+		if err != nil {
+			return nil, nil, err
 		}
 		optionsByPrefix[prefix] = append(optionsByPrefix[prefix], option)
 		activePrefixes[prefix] = struct{}{}
 	}
 
+	return optionsByPrefix, activePrefixes, nil
+}
+
+func validateOptionPrefix(option Option, index int, registered map[string]Config) (string, error) {
+	if optionIsNil(option) {
+		return "", fmt.Errorf("extension: option %d is nil", index)
+	}
+	rawPrefix := option.Prefix()
+	prefix := strings.TrimSpace(rawPrefix)
+	if prefix == "" {
+		return "", fmt.Errorf("extension: option %d has an empty prefix", index)
+	}
+	if prefix != rawPrefix {
+		return "", fmt.Errorf("extension: option %d prefix %q must not contain surrounding whitespace", index, rawPrefix)
+	}
+	if _, ok := registered[prefix]; !ok {
+		return "", fmt.Errorf("extension %q: config is not registered", prefix)
+	}
+	return prefix, nil
+}
+
+func collectRawConfigs(rawConfigs map[string]any, scope Scope, registered map[string]Config, activePrefixes map[string]struct{}) (map[string]map[string]any, error) {
 	rawByPrefix := make(map[string]map[string]any)
 	for prefix, value := range rawConfigs {
 		selected, active, err := selectRawConfig(value, scope)
@@ -80,6 +105,10 @@ func Initialize(rawConfigs map[string]any, options []Option, scope Scope) ([]str
 		rawByPrefix[prefix] = selected
 		activePrefixes[prefix] = struct{}{}
 	}
+	return rawByPrefix, nil
+}
+
+func initializeConfigs(registered map[string]Config, rawByPrefix map[string]map[string]any, optionsByPrefix map[string][]Option, activePrefixes map[string]struct{}, scope Scope) ([]string, error) {
 
 	prefixes := make([]string, 0, len(activePrefixes))
 	for prefix := range activePrefixes {
@@ -90,46 +119,83 @@ func Initialize(rawConfigs map[string]any, options []Option, scope Scope) ([]str
 	filterNames := make([]string, 0)
 	seenFilters := make(map[string]struct{})
 	for _, prefix := range prefixes {
-		prototype := registered[prefix]
-		config := prototype.New()
-		if configIsNil(config) {
-			return nil, fmt.Errorf("extension %q: new config returned nil", prefix)
+		names, err := initializeConfig(registered[prefix], rawByPrefix[prefix], optionsByPrefix[prefix], prefix, scope, seenFilters)
+		if err != nil {
+			return nil, err
 		}
-		if config.Prefix() != prefix {
-			return nil, fmt.Errorf("extension %q: new config returned prefix %q", prefix, config.Prefix())
-		}
-
-		if raw, ok := rawByPrefix[prefix]; ok {
-			if err := decodeConfig(raw, config); err != nil {
-				return nil, fmt.Errorf("extension %q: decode YAML config: %w", prefix, err)
-			}
-		}
-		for index, option := range optionsByPrefix[prefix] {
-			if err := option.Apply(config); err != nil {
-				return nil, fmt.Errorf("extension %q: apply option %d: %w", prefix, index, err)
-			}
-		}
-
-		for index, name := range config.FilterNames(scope) {
-			name = strings.TrimSpace(name)
-			if name == "" {
-				return nil, fmt.Errorf("extension %q: filter name %d is empty", prefix, index)
-			}
-			if !HasFilter(name) {
-				return nil, fmt.Errorf("extension %q: filter %q is not registered", prefix, name)
-			}
-			if _, duplicate := seenFilters[name]; duplicate {
-				continue
-			}
-			seenFilters[name] = struct{}{}
-			filterNames = append(filterNames, name)
-		}
-
-		if err := config.Init(scope); err != nil {
-			return nil, fmt.Errorf("extension %q: initialize scope %d: %w", prefix, scope, err)
-		}
+		filterNames = append(filterNames, names...)
 	}
 
+	return filterNames, nil
+}
+
+func initializeConfig(prototype Config, raw map[string]any, options []Option, prefix string, scope Scope, seenFilters map[string]struct{}) ([]string, error) {
+	config := prototype.New()
+	if err := validateNewConfig(config, prefix); err != nil {
+		return nil, err
+	}
+
+	if err := decodeExtensionConfig(raw, config, prefix); err != nil {
+		return nil, err
+	}
+	if err := applyOptions(config, options, prefix); err != nil {
+		return nil, err
+	}
+	filterNames, err := collectFilterNames(config, prefix, scope, seenFilters)
+	if err != nil {
+		return nil, err
+	}
+	if err := config.Init(scope); err != nil {
+		return nil, fmt.Errorf("extension %q: initialize scope %d: %w", prefix, scope, err)
+	}
+	return filterNames, nil
+}
+
+func validateNewConfig(config Config, prefix string) error {
+	if configIsNil(config) {
+		return fmt.Errorf("extension %q: new config returned nil", prefix)
+	}
+	if configPrefix := config.Prefix(); configPrefix != prefix {
+		return fmt.Errorf("extension %q: new config returned prefix %q", prefix, configPrefix)
+	}
+	return nil
+}
+
+func decodeExtensionConfig(raw map[string]any, config Config, prefix string) error {
+	if raw == nil {
+		return nil
+	}
+	if err := decodeConfig(raw, config); err != nil {
+		return fmt.Errorf("extension %q: decode YAML config: %w", prefix, err)
+	}
+	return nil
+}
+
+func applyOptions(config Config, options []Option, prefix string) error {
+	for index, option := range options {
+		if err := option.Apply(config); err != nil {
+			return fmt.Errorf("extension %q: apply option %d: %w", prefix, index, err)
+		}
+	}
+	return nil
+}
+
+func collectFilterNames(config Config, prefix string, scope Scope, seenFilters map[string]struct{}) ([]string, error) {
+	filterNames := make([]string, 0)
+	for index, name := range config.FilterNames(scope) {
+		name = strings.TrimSpace(name)
+		if name == "" {
+			return nil, fmt.Errorf("extension %q: filter name %d is empty", prefix, index)
+		}
+		if !HasFilter(name) {
+			return nil, fmt.Errorf("extension %q: filter %q is not registered", prefix, name)
+		}
+		if _, duplicate := seenFilters[name]; duplicate {
+			continue
+		}
+		seenFilters[name] = struct{}{}
+		filterNames = append(filterNames, name)
+	}
 	return filterNames, nil
 }
 
