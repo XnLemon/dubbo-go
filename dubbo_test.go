@@ -18,6 +18,7 @@
 package dubbo
 
 import (
+	"errors"
 	"maps"
 	"testing"
 )
@@ -37,6 +38,102 @@ import (
 	"dubbo.apache.org/dubbo-go/v3/registry"
 	"dubbo.apache.org/dubbo-go/v3/server"
 )
+
+type instanceEntryConfig struct {
+	prefix      string
+	Value       int
+	initialized extension.Scope
+	onInit      func(*instanceEntryConfig)
+}
+
+func (c *instanceEntryConfig) Prefix() string {
+	return c.prefix
+}
+
+func (c *instanceEntryConfig) New() extension.Config {
+	return &instanceEntryConfig{
+		prefix: c.prefix,
+		Value:  1,
+		onInit: c.onInit,
+	}
+}
+
+func (c *instanceEntryConfig) Init(scope extension.Scope) error {
+	if scope != extension.InstanceScope && scope != extension.ClientScope {
+		return errors.New("instance or client scope is required")
+	}
+	c.initialized = scope
+	if c.onInit != nil {
+		c.onInit(c)
+	}
+	return nil
+}
+
+func (c *instanceEntryConfig) FilterNames(extension.Scope) []string {
+	return nil
+}
+
+type instanceEntryOption struct {
+	prefix string
+	value  int
+}
+
+func (o instanceEntryOption) Prefix() string {
+	return o.prefix
+}
+
+func (o instanceEntryOption) Apply(config extension.Config) error {
+	config.(*instanceEntryConfig).Value = o.value
+	return nil
+}
+
+func TestWithExtensionBuildsInstanceConfig(t *testing.T) {
+	const prefix = "instance-entry"
+	extension.UnregisterConfig(prefix)
+	t.Cleanup(func() { extension.UnregisterConfig(prefix) })
+
+	var initialized *instanceEntryConfig
+	require.NoError(t, extension.RegisterConfig(&instanceEntryConfig{
+		prefix: prefix,
+		onInit: func(config *instanceEntryConfig) {
+			initialized = config
+		},
+	}))
+
+	_, err := NewInstance(WithExtension(instanceEntryOption{prefix: prefix, value: 9}))
+	require.NoError(t, err)
+	require.NotNil(t, initialized)
+	assert.Equal(t, 9, initialized.Value)
+	assert.Equal(t, extension.InstanceScope, initialized.initialized)
+}
+
+func TestInstancePropagatesRoleSpecificExtensionYAMLToClient(t *testing.T) {
+	const prefix = "instance-to-client-entry"
+	extension.UnregisterConfig(prefix)
+	t.Cleanup(func() { extension.UnregisterConfig(prefix) })
+
+	var initialized *instanceEntryConfig
+	require.NoError(t, extension.RegisterConfig(&instanceEntryConfig{
+		prefix: prefix,
+		onInit: func(config *instanceEntryConfig) {
+			initialized = config
+		},
+	}))
+
+	instance, err := NewInstance(func(opts *InstanceOptions) {
+		opts.extensionConfigs = map[string]any{
+			prefix: map[string]any{
+				"consumer": map[string]any{"value": 7},
+			},
+		}
+	})
+	require.NoError(t, err)
+	_, err = instance.NewClient()
+	require.NoError(t, err)
+	require.NotNil(t, initialized)
+	assert.Equal(t, 7, initialized.Value)
+	assert.Equal(t, extension.ClientScope, initialized.initialized)
+}
 
 type testRPCService struct {
 	ref string

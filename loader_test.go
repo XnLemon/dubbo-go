@@ -23,6 +23,10 @@ import (
 	"testing"
 )
 
+import (
+	"github.com/stretchr/testify/require"
+)
+
 func writeFile(t *testing.T, dir, name, content string) string {
 	t.Helper()
 	p := filepath.Join(dir, name)
@@ -107,4 +111,21 @@ func TestHotUpdateConfig_AllowsWithCustomPrefix(t *testing.T) {
 	if err := hotUpdateConfig(conf); err != nil {
 		t.Fatalf("hotUpdateConfig unexpected error with allowed prefix: %v", err)
 	}
+}
+
+func TestExtensionConfigsFromKoanfPreservesDottedKeys(t *testing.T) {
+	conf := NewLoaderConf(WithBytes([]byte(`dubbo:
+  extensions:
+    dotted:
+      consumer:
+        greet.GreetService:::Greet:
+          timeout: 1000
+`)))
+	configs := extensionConfigsFromKoanf(GetConfigResolver(conf))
+	require.NotNil(t, configs)
+	dotted, ok := configs["dotted"].(map[string]any)
+	require.True(t, ok)
+	consumer, ok := dotted["consumer"].(map[string]any)
+	require.True(t, ok)
+	require.Contains(t, consumer, "greet.GreetService:::Greet")
 }

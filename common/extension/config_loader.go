@@ -24,7 +24,9 @@ import (
 	"strings"
 )
 
-import "github.com/mitchellh/mapstructure"
+import (
+	"github.com/mitchellh/mapstructure"
+)
 
 // Initialize creates and initializes the extensions active for one lifecycle
 // scope. rawConfigs is the map below dubbo.extensions, while options contains
