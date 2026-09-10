@@ -74,6 +74,7 @@ func Load(opts ...LoaderConfOption) error {
 		newOpts = defaultInstanceOptions()
 		koan := GetConfigResolver(conf)
 		koan = conf.MergeConfig(koan)
+		newOpts.extensionConfigs = extensionConfigsFromKoanf(koan)
 		if err := koan.UnmarshalWithConf(newOpts.Prefix(),
 			newOpts, koanf.UnmarshalConf{Tag: "yaml"}); err != nil {
 			return err
@@ -154,6 +155,7 @@ func hotUpdateConfig(conf *loaderConf) error {
 	conf.bytes = newBytes
 
 	koan := newKoan
+	newOpts.extensionConfigs = extensionConfigsFromKoanf(koan)
 	if err := koan.UnmarshalWithConf(newOpts.Prefix(), newOpts, koanf.UnmarshalConf{Tag: "yaml"}); err != nil {
 		return err
 	}
@@ -402,6 +404,22 @@ func GetConfigResolver(conf *loaderConf) *koanf.Koanf {
 		panic(err)
 	}
 	return resolvePlaceholder(k)
+}
+
+func extensionConfigsFromKoanf(koan *koanf.Koanf) map[string]any {
+	if koan == nil {
+		return nil
+	}
+	root := koan.Raw()
+	dubboConfig, ok := root[constant.Dubbo].(map[string]any)
+	if !ok {
+		return nil
+	}
+	extensions, ok := dubboConfig["extensions"].(map[string]any)
+	if !ok {
+		return nil
+	}
+	return cloneExtensionConfigs(extensions)
 }
 
 // resolvePlaceholder replace ${xx} with real value

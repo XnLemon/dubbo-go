@@ -1,0 +1,270 @@
+/*
+ * Licensed to the Apache Software Foundation (ASF) under one or more
+ * contributor license agreements.  See the NOTICE file distributed with
+ * this work for additional information regarding copyright ownership.
+ * The ASF licenses this file to You under the Apache License, Version 2.0
+ * (the "License"); you may not use this file except in compliance with
+ * the License.  You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+package extension
+
+import (
+	"fmt"
+	"reflect"
+	"sort"
+	"strings"
+)
+
+import "github.com/mitchellh/mapstructure"
+
+// Initialize creates and initializes the extensions active for one lifecycle
+// scope. rawConfigs is the map below dubbo.extensions, while options contains
+// typed options declared by the corresponding entry point.
+//
+// Each active extension receives a fresh Config. Its configuration precedence
+// is defaults from Config.New, selected YAML, typed options, and finally
+// Config.Init. Filter names are validated before they are returned, so callers
+// can merge them into their filter configuration atomically after all
+// extensions have initialized successfully.
+func Initialize(rawConfigs map[string]any, options []Option, scope Scope) ([]string, error) {
+	if !scope.valid() {
+		return nil, fmt.Errorf("extension: invalid scope %d", scope)
+	}
+
+	registered := configs.Snapshot()
+	optionsByPrefix := make(map[string][]Option)
+	activePrefixes := make(map[string]struct{})
+
+	for index, option := range options {
+		if optionIsNil(option) {
+			return nil, fmt.Errorf("extension: option %d is nil", index)
+		}
+		rawPrefix := option.Prefix()
+		prefix := strings.TrimSpace(rawPrefix)
+		if prefix == "" {
+			return nil, fmt.Errorf("extension: option %d has an empty prefix", index)
+		}
+		if prefix != rawPrefix {
+			return nil, fmt.Errorf("extension: option %d prefix %q must not contain surrounding whitespace", index, rawPrefix)
+		}
+		if _, ok := registered[prefix]; !ok {
+			return nil, fmt.Errorf("extension %q: config is not registered", prefix)
+		}
+		optionsByPrefix[prefix] = append(optionsByPrefix[prefix], option)
+		activePrefixes[prefix] = struct{}{}
+	}
+
+	rawByPrefix := make(map[string]map[string]any)
+	for prefix, value := range rawConfigs {
+		selected, active, err := selectRawConfig(value, scope)
+		if err != nil {
+			return nil, fmt.Errorf("extension %q: invalid YAML config: %w", prefix, err)
+		}
+		if !active {
+			continue
+		}
+		if _, ok := registered[prefix]; !ok {
+			return nil, fmt.Errorf("extension %q: config is not registered", prefix)
+		}
+		rawByPrefix[prefix] = selected
+		activePrefixes[prefix] = struct{}{}
+	}
+
+	prefixes := make([]string, 0, len(activePrefixes))
+	for prefix := range activePrefixes {
+		prefixes = append(prefixes, prefix)
+	}
+	sort.Strings(prefixes)
+
+	filterNames := make([]string, 0)
+	seenFilters := make(map[string]struct{})
+	for _, prefix := range prefixes {
+		prototype := registered[prefix]
+		config := prototype.New()
+		if configIsNil(config) {
+			return nil, fmt.Errorf("extension %q: new config returned nil", prefix)
+		}
+		if config.Prefix() != prefix {
+			return nil, fmt.Errorf("extension %q: new config returned prefix %q", prefix, config.Prefix())
+		}
+
+		if raw, ok := rawByPrefix[prefix]; ok {
+			if err := decodeConfig(raw, config); err != nil {
+				return nil, fmt.Errorf("extension %q: decode YAML config: %w", prefix, err)
+			}
+		}
+		for index, option := range optionsByPrefix[prefix] {
+			if err := option.Apply(config); err != nil {
+				return nil, fmt.Errorf("extension %q: apply option %d: %w", prefix, index, err)
+			}
+		}
+
+		for index, name := range config.FilterNames(scope) {
+			name = strings.TrimSpace(name)
+			if name == "" {
+				return nil, fmt.Errorf("extension %q: filter name %d is empty", prefix, index)
+			}
+			if !HasFilter(name) {
+				return nil, fmt.Errorf("extension %q: filter %q is not registered", prefix, name)
+			}
+			if _, duplicate := seenFilters[name]; duplicate {
+				continue
+			}
+			seenFilters[name] = struct{}{}
+			filterNames = append(filterNames, name)
+		}
+
+		if err := config.Init(scope); err != nil {
+			return nil, fmt.Errorf("extension %q: initialize scope %d: %w", prefix, scope, err)
+		}
+	}
+
+	return filterNames, nil
+}
+
+// MergeFilterNames appends extension filters to an existing filter list while
+// preserving declaration order and honoring an explicit -name suppression.
+// Existing duplicate entries are removed as part of the merge.
+func MergeFilterNames(existing string, additions []string) string {
+	result := make([]string, 0)
+	seen := make(map[string]struct{})
+	disabled := make(map[string]struct{})
+
+	appendExisting := func(raw string) {
+		name := strings.TrimSpace(raw)
+		if name == "" {
+			return
+		}
+		if strings.HasPrefix(name, "-") {
+			disabled[strings.TrimPrefix(name, "-")] = struct{}{}
+		}
+		if _, ok := seen[name]; ok {
+			return
+		}
+		seen[name] = struct{}{}
+		result = append(result, name)
+	}
+	for _, name := range strings.Split(existing, ",") {
+		appendExisting(name)
+	}
+
+	for _, raw := range additions {
+		name := strings.TrimSpace(raw)
+		if name == "" {
+			continue
+		}
+		if _, ok := disabled[name]; ok {
+			continue
+		}
+		if _, ok := seen[name]; ok {
+			continue
+		}
+		seen[name] = struct{}{}
+		result = append(result, name)
+	}
+
+	return strings.Join(result, ",")
+}
+
+func selectRawConfig(value any, scope Scope) (map[string]any, bool, error) {
+	config, ok := asStringMap(value)
+	if !ok {
+		return nil, false, fmt.Errorf("value must be an object")
+	}
+
+	switch scope {
+	case InstanceScope:
+		// consumer/provider are reserved role blocks. They belong to the
+		// client/server lifecycles and must not activate an instance extension.
+		if _, ok := config["consumer"]; ok {
+			return nil, false, nil
+		}
+		if _, ok := config["provider"]; ok {
+			return nil, false, nil
+		}
+		return config, true, nil
+	case ClientScope:
+		selected, ok := config["consumer"]
+		if !ok {
+			return nil, false, nil
+		}
+		return selectedConfig(selected)
+	case ServerScope:
+		selected, ok := config["provider"]
+		if !ok {
+			return nil, false, nil
+		}
+		return selectedConfig(selected)
+	default:
+		return nil, false, fmt.Errorf("invalid scope %d", scope)
+	}
+}
+
+func selectedConfig(value any) (map[string]any, bool, error) {
+	if value == nil {
+		return nil, true, nil
+	}
+	config, ok := asStringMap(value)
+	if !ok {
+		return nil, false, fmt.Errorf("selected role config must be an object")
+	}
+	return config, true, nil
+}
+
+func asStringMap(value any) (map[string]any, bool) {
+	switch config := value.(type) {
+	case map[string]any:
+		return config, true
+	case map[any]any:
+		converted := make(map[string]any, len(config))
+		for key, item := range config {
+			name, ok := key.(string)
+			if !ok {
+				return nil, false
+			}
+			converted[name] = item
+		}
+		return converted, true
+	default:
+		return nil, false
+	}
+}
+
+func decodeConfig(raw map[string]any, config Config) error {
+	decoder, err := mapstructure.NewDecoder(&mapstructure.DecoderConfig{
+		DecodeHook: mapstructure.ComposeDecodeHookFunc(
+			mapstructure.StringToTimeDurationHookFunc(),
+			mapstructure.StringToSliceHookFunc(","),
+			mapstructure.TextUnmarshallerHookFunc(),
+		),
+		TagName:          "yaml",
+		WeaklyTypedInput: true,
+		Result:           config,
+	})
+	if err != nil {
+		return err
+	}
+	return decoder.Decode(raw)
+}
+
+func optionIsNil(option Option) bool {
+	if option == nil {
+		return true
+	}
+	value := reflect.ValueOf(option)
+	switch value.Kind() {
+	case reflect.Chan, reflect.Func, reflect.Interface, reflect.Map, reflect.Pointer, reflect.Slice:
+		return value.IsNil()
+	default:
+		return false
+	}
+}
