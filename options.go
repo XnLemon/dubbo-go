@@ -301,6 +301,26 @@ func cloneExtensionConfigs(configs map[string]any) map[string]any {
 	return cloned
 }
 
+func mergeExtensionConfigs(base, overlay map[string]any) map[string]any {
+	if base == nil && overlay == nil {
+		return nil
+	}
+	merged := cloneExtensionConfigs(base)
+	if merged == nil {
+		merged = make(map[string]any, len(overlay))
+	}
+	for key, overlayValue := range overlay {
+		overlayMap, overlayIsMap := overlayValue.(map[string]any)
+		baseMap, baseIsMap := merged[key].(map[string]any)
+		if overlayIsMap && baseIsMap {
+			merged[key] = mergeExtensionConfigs(baseMap, overlayMap)
+			continue
+		}
+		merged[key] = cloneExtensionValue(overlayValue)
+	}
+	return merged
+}
+
 func cloneExtensionValue(value any) any {
 	switch value := value.(type) {
 	case map[string]any:

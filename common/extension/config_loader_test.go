@@ -81,6 +81,33 @@ func (o loaderTestOption) Apply(config Config) error {
 	return nil
 }
 
+type initTrackingConfig struct {
+	prefix      string
+	filterNames []string
+	initCount   *int
+}
+
+func (c *initTrackingConfig) Prefix() string {
+	return c.prefix
+}
+
+func (c *initTrackingConfig) New() Config {
+	return &initTrackingConfig{
+		prefix:      c.prefix,
+		filterNames: c.filterNames,
+		initCount:   c.initCount,
+	}
+}
+
+func (c *initTrackingConfig) Init(Scope) error {
+	*c.initCount++
+	return nil
+}
+
+func (c *initTrackingConfig) FilterNames(Scope) []string {
+	return c.filterNames
+}
+
 func TestInitializeAppliesRoleYAMLThenOptions(t *testing.T) {
 	const prefix = "loader-contract"
 	const filterName = "loader-test-filter"
@@ -146,7 +173,40 @@ func TestInitializeIgnoresOtherRoleYAML(t *testing.T) {
 	assert.Equal(t, 0, initCount)
 }
 
+func TestInitializeValidatesAllConfigsBeforeInit(t *testing.T) {
+	const firstPrefix = "aaa-init-tracking"
+	const invalidPrefix = "zzz-init-tracking"
+	UnregisterConfig(firstPrefix)
+	UnregisterConfig(invalidPrefix)
+	t.Cleanup(func() {
+		UnregisterConfig(firstPrefix)
+		UnregisterConfig(invalidPrefix)
+	})
+
+	firstInitCount := 0
+	invalidInitCount := 0
+	require.NoError(t, RegisterConfig(&initTrackingConfig{
+		prefix:    firstPrefix,
+		initCount: &firstInitCount,
+	}))
+	require.NoError(t, RegisterConfig(&initTrackingConfig{
+		prefix:      invalidPrefix,
+		filterNames: []string{"not-registered-filter"},
+		initCount:   &invalidInitCount,
+	}))
+
+	_, err := Initialize(map[string]any{
+		firstPrefix:   map[string]any{},
+		invalidPrefix: map[string]any{},
+	}, nil, InstanceScope)
+	require.Error(t, err)
+	assert.Zero(t, firstInitCount)
+	assert.Zero(t, invalidInitCount)
+}
+
 func TestMergeFilterNamesHonorsExplicitSuppression(t *testing.T) {
-	assert.Equal(t, "-extension,a,b", MergeFilterNames("-extension,a,a", []string{"extension", "b", "b"}))
+	assert.Equal(t, "a,b", MergeFilterNames("-extension,a,a", []string{"extension", "b", "b"}))
+	assert.Empty(t, MergeFilterNames("extension,-extension", []string{"extension"}))
+	assert.Equal(t, "-default,a,extension", MergeFilterNames("-default,a", []string{"extension"}))
 	assert.Empty(t, MergeFilterNames("", nil))
 }

@@ -141,6 +141,30 @@ func TestWithExtensionRejectsUnsupportedServerScope(t *testing.T) {
 	assert.Contains(t, err.Error(), "server scope is required")
 }
 
+func TestWithExtensionHonorsExplicitFilterSuppression(t *testing.T) {
+	const prefix = "server-entry-suppressed"
+	const filterName = "server-entry-filter"
+	extension.UnregisterConfig(prefix)
+	extension.UnregisterFilter(filterName)
+	t.Cleanup(func() {
+		extension.UnregisterConfig(prefix)
+		extension.UnregisterFilter(filterName)
+	})
+
+	require.NoError(t, extension.RegisterConfig(&serverEntryConfig{
+		prefix:        prefix,
+		requiredScope: extension.ServerScope,
+	}))
+	extension.SetFilter(filterName, func() filter.Filter { return nil })
+
+	srv, err := NewServer(
+		WithServerFilter("-"+filterName),
+		WithExtension(serverEntryOption{prefix: prefix, value: 1}),
+	)
+	require.NoError(t, err)
+	assert.Empty(t, srv.cfg.Provider.Filter)
+}
+
 // Test defaultServerOptions
 func TestDefaultServerOptions(t *testing.T) {
 	opts := defaultServerOptions()

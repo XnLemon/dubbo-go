@@ -109,7 +109,6 @@ func collectRawConfigs(rawConfigs map[string]any, scope Scope, registered map[st
 }
 
 func initializeConfigs(registered map[string]Config, rawByPrefix map[string]map[string]any, optionsByPrefix map[string][]Option, activePrefixes map[string]struct{}, scope Scope) ([]string, error) {
-
 	prefixes := make([]string, 0, len(activePrefixes))
 	for prefix := range activePrefixes {
 		prefixes = append(prefixes, prefix)
@@ -118,37 +117,48 @@ func initializeConfigs(registered map[string]Config, rawByPrefix map[string]map[
 
 	filterNames := make([]string, 0)
 	seenFilters := make(map[string]struct{})
+	prepared := make([]preparedConfig, 0, len(prefixes))
 	for _, prefix := range prefixes {
-		names, err := initializeConfig(registered[prefix], rawByPrefix[prefix], optionsByPrefix[prefix], prefix, scope, seenFilters)
+		config, err := prepareConfig(registered[prefix], rawByPrefix[prefix], optionsByPrefix[prefix], prefix, scope, seenFilters)
 		if err != nil {
 			return nil, err
 		}
-		filterNames = append(filterNames, names...)
+		prepared = append(prepared, config)
+		filterNames = append(filterNames, config.filterNames...)
+	}
+
+	for _, config := range prepared {
+		if err := config.config.Init(scope); err != nil {
+			return nil, fmt.Errorf("extension %q: initialize scope %d: %w", config.prefix, scope, err)
+		}
 	}
 
 	return filterNames, nil
 }
 
-func initializeConfig(prototype Config, raw map[string]any, options []Option, prefix string, scope Scope, seenFilters map[string]struct{}) ([]string, error) {
+type preparedConfig struct {
+	config      Config
+	prefix      string
+	filterNames []string
+}
+
+func prepareConfig(prototype Config, raw map[string]any, options []Option, prefix string, scope Scope, seenFilters map[string]struct{}) (preparedConfig, error) {
 	config := prototype.New()
 	if err := validateNewConfig(config, prefix); err != nil {
-		return nil, err
+		return preparedConfig{}, err
 	}
 
 	if err := decodeExtensionConfig(raw, config, prefix); err != nil {
-		return nil, err
+		return preparedConfig{}, err
 	}
 	if err := applyOptions(config, options, prefix); err != nil {
-		return nil, err
+		return preparedConfig{}, err
 	}
 	filterNames, err := collectFilterNames(config, prefix, scope, seenFilters)
 	if err != nil {
-		return nil, err
+		return preparedConfig{}, err
 	}
-	if err := config.Init(scope); err != nil {
-		return nil, fmt.Errorf("extension %q: initialize scope %d: %w", prefix, scope, err)
-	}
-	return filterNames, nil
+	return preparedConfig{config: config, prefix: prefix, filterNames: filterNames}, nil
 }
 
 func validateNewConfig(config Config, prefix string) error {
@@ -206,14 +216,33 @@ func MergeFilterNames(existing string, additions []string) string {
 	result := make([]string, 0)
 	seen := make(map[string]struct{})
 	disabled := make(map[string]struct{})
+	added := make(map[string]struct{}, len(additions))
+	for _, raw := range additions {
+		name := strings.TrimSpace(raw)
+		if name != "" {
+			added[name] = struct{}{}
+		}
+	}
+	for name := range strings.SplitSeq(existing, ",") {
+		name = strings.TrimSpace(name)
+		if after, ok := strings.CutPrefix(name, "-"); ok {
+			disabled[after] = struct{}{}
+		}
+	}
 
 	appendExisting := func(raw string) {
 		name := strings.TrimSpace(raw)
 		if name == "" {
 			return
 		}
-		if strings.HasPrefix(name, "-") {
-			disabled[strings.TrimPrefix(name, "-")] = struct{}{}
+		if after, ok := strings.CutPrefix(name, "-"); ok {
+			if _, suppressesAddition := added[after]; suppressesAddition {
+				return
+			}
+		} else if _, suppressed := disabled[name]; suppressed {
+			if _, isAddition := added[name]; isAddition {
+				return
+			}
 		}
 		if _, ok := seen[name]; ok {
 			return
@@ -221,7 +250,7 @@ func MergeFilterNames(existing string, additions []string) string {
 		seen[name] = struct{}{}
 		result = append(result, name)
 	}
-	for _, name := range strings.Split(existing, ",") {
+	for name := range strings.SplitSeq(existing, ",") {
 		appendExisting(name)
 	}
 
