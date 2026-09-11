@@ -47,6 +47,8 @@ type Config interface {
 	Prefix() string
 	New() Config
 	Init(scope Scope) error
+	// FilterNames contributes filters for client and server lifecycles. It is
+	// not called for InstanceScope.
 	FilterNames(scope Scope) []string
 }
 

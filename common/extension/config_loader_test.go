@@ -196,12 +196,36 @@ func TestInitializeValidatesAllConfigsBeforeInit(t *testing.T) {
 	}))
 
 	_, err := Initialize(map[string]any{
-		firstPrefix:   map[string]any{},
-		invalidPrefix: map[string]any{},
-	}, nil, InstanceScope)
+		firstPrefix: map[string]any{
+			"consumer": map[string]any{},
+		},
+		invalidPrefix: map[string]any{
+			"consumer": map[string]any{},
+		},
+	}, nil, ClientScope)
 	require.Error(t, err)
 	assert.Zero(t, firstInitCount)
 	assert.Zero(t, invalidInitCount)
+}
+
+func TestInitializeInstanceScopeSkipsFilterValidation(t *testing.T) {
+	const prefix = "instance-filter-validation"
+	UnregisterConfig(prefix)
+	t.Cleanup(func() { UnregisterConfig(prefix) })
+
+	initCount := 0
+	require.NoError(t, RegisterConfig(&initTrackingConfig{
+		prefix:      prefix,
+		filterNames: []string{"not-registered-filter"},
+		initCount:   &initCount,
+	}))
+
+	filters, err := Initialize(map[string]any{
+		prefix: map[string]any{},
+	}, nil, InstanceScope)
+	require.NoError(t, err)
+	assert.Empty(t, filters)
+	assert.Equal(t, 1, initCount)
 }
 
 func TestMergeFilterNamesHonorsExplicitSuppression(t *testing.T) {

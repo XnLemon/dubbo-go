@@ -191,6 +191,10 @@ func applyOptions(config Config, options []Option, prefix string) error {
 }
 
 func collectFilterNames(config Config, prefix string, scope Scope, seenFilters map[string]struct{}) ([]string, error) {
+	if scope == InstanceScope {
+		return nil, nil
+	}
+
 	filterNames := make([]string, 0)
 	for index, name := range config.FilterNames(scope) {
 		name = strings.TrimSpace(name)

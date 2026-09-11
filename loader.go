@@ -164,6 +164,11 @@ func hotUpdateConfig(conf *loaderConf) error {
 	oldKoan := buildKoanfFromBytes(conf, oldBytes)
 	newKoan := buildKoanfFromBytes(conf, newBytes)
 
+	if extensionConfigsChanged(oldKoan, newKoan) {
+		logger.Warn("[Loader] hot reload denied, extension configuration changes require restart")
+		return errors.New("hot reload denied: extension configuration changes require restart")
+	}
+
 	if !safeChanged(oldKoan, newKoan) {
 		logger.Warn("[Loader] hot reload denied, changes outside allowed hot-reload keys detected")
 		return errors.New("hot reload denied: disallowed configuration changes detected")
@@ -551,4 +556,8 @@ func safeChanged(oldK, newK *koanf.Koanf) bool {
 		}
 	}
 	return true
+}
+
+func extensionConfigsChanged(oldK, newK *koanf.Koanf) bool {
+	return !reflect.DeepEqual(extensionConfigsFromKoanf(oldK), extensionConfigsFromKoanf(newK))
 }

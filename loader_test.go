@@ -90,6 +90,31 @@ func TestHotUpdateConfig_DeniesDisallowedChange(t *testing.T) {
 	}
 }
 
+func TestHotUpdateConfig_DeniesExtensionChangeEvenWhenBroadlyAllowed(t *testing.T) {
+	prevIns := instanceOptions
+	prevPreds := hotReloadAllowedPredicates
+	t.Cleanup(func() {
+		instanceOptions = prevIns
+		hotReloadAllowedPredicates = prevPreds
+	})
+
+	tmp := t.TempDir()
+	base := "dubbo:\n  extensions:\n    demo:\n      value: 1\n"
+	updated := "dubbo:\n  extensions:\n    demo:\n      value: 2\n"
+
+	path := writeFile(t, tmp, "conf.yaml", base)
+	conf := NewLoaderConf(WithPath(path))
+	AllowHotReloadPrefix("dubbo.")
+
+	if err := os.WriteFile(path, []byte(updated), 0o600); err != nil {
+		t.Fatalf("overwrite file: %v", err)
+	}
+
+	err := hotUpdateConfig(conf)
+	require.EqualError(t, err, "hot reload denied: extension configuration changes require restart")
+	require.Same(t, prevIns, instanceOptions)
+}
+
 func TestHotUpdateConfig_AllowsWithCustomPrefix(t *testing.T) {
 	// snapshot globals and hot-reload predicates
 	prevIns := instanceOptions
