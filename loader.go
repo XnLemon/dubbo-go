@@ -87,16 +87,9 @@ func goSafely(wg *sync.WaitGroup, handler func()) {
 
 func Load(opts ...LoaderConfOption) error {
 	conf := NewLoaderConf(opts...)
-	newOpts := conf.opts
-	if conf.opts == nil {
-		newOpts = defaultInstanceOptions()
-		koan := GetConfigResolver(conf)
-		koan = conf.MergeConfig(koan)
-		newOpts.extensionConfigs = extensionConfigsFromKoanf(koan)
-		if err := koan.UnmarshalWithConf(newOpts.Prefix(),
-			newOpts, koanf.UnmarshalConf{Tag: "yaml"}); err != nil {
-			return err
-		}
+	newOpts, err := loadInstanceOptions(conf)
+	if err != nil {
+		return err
 	}
 
 	if err := newOpts.init(); err != nil {
@@ -118,6 +111,23 @@ func Load(opts ...LoaderConfOption) error {
 		})
 	})
 	return instance.start()
+}
+
+func loadInstanceOptions(conf *loaderConf) (*InstanceOptions, error) {
+	newOpts := conf.opts
+	if conf.opts != nil {
+		return newOpts, nil
+	}
+
+	newOpts = defaultInstanceOptions()
+	koan := GetConfigResolver(conf)
+	koan = conf.MergeConfig(koan)
+	newOpts.extensionConfigs = extensionConfigsFromKoanf(koan)
+	if err := koan.UnmarshalWithConf(newOpts.Prefix(),
+		newOpts, koanf.UnmarshalConf{Tag: "yaml"}); err != nil {
+		return nil, err
+	}
+	return newOpts, nil
 }
 
 func watch(conf *loaderConf, stopCh <-chan struct{}) {

@@ -369,12 +369,11 @@ func (svcOpts *ServiceOptions) getUrlMap() url.Values {
 	urlMap.Set(constant.WeightKey, strconv.FormatInt(svcOpts.Provider.Weight, 10))
 
 	//filter
-	var filters string
+	filters := svcConf.Filter
 	if svcConf.Filter == "" {
 		filters = constant.DefaultServiceFilters
-	} else {
-		filters = svcConf.Filter
 	}
+	filters = extension.MergeFilterNames(filters, svcOpts.srvOpts.extensionFilterNames)
 	if svcOpts.adaptiveService {
 		filters += fmt.Sprintf(",%s", constant.AdaptiveServiceProviderFilterKey)
 	}

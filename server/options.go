@@ -50,16 +50,17 @@ import (
 )
 
 type ServerOptions struct {
-	Provider         *global.ProviderConfig
-	Application      *global.ApplicationConfig
-	Registries       map[string]*global.RegistryConfig
-	Protocols        map[string]*global.ProtocolConfig
-	Shutdown         *global.ShutdownConfig
-	Metrics          *global.MetricsConfig
-	Otel             *global.OtelConfig
-	TLS              *global.TLSConfig
-	extensionOptions []extension.Option
-	extensionConfigs map[string]any
+	Provider             *global.ProviderConfig
+	Application          *global.ApplicationConfig
+	Registries           map[string]*global.RegistryConfig
+	Protocols            map[string]*global.ProtocolConfig
+	Shutdown             *global.ShutdownConfig
+	Metrics              *global.MetricsConfig
+	Otel                 *global.OtelConfig
+	TLS                  *global.TLSConfig
+	extensionOptions     []extension.Option
+	extensionConfigs     map[string]any
+	extensionFilterNames []string
 }
 
 func defaultServerOptions() *ServerOptions {
@@ -103,7 +104,7 @@ func (srvOpts *ServerOptions) init(opts ...ServerOption) error {
 	if err != nil {
 		return err
 	}
-	providerConf.Filter = extension.MergeFilterNames(providerConf.Filter, filterNames)
+	srvOpts.extensionFilterNames = append([]string(nil), filterNames...)
 
 	// enable adaptive service verbose
 	if providerConf.AdaptiveServiceVerbose {

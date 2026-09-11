@@ -26,8 +26,43 @@ import (
 )
 
 import (
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+import (
+	"dubbo.apache.org/dubbo-go/v3/common/extension"
+)
+
+type loaderYAMLConfig struct {
+	prefix      string
+	Value       int `yaml:"value"`
+	initialized extension.Scope
+	onInit      func(*loaderYAMLConfig)
+}
+
+func (c *loaderYAMLConfig) Prefix() string {
+	return c.prefix
+}
+
+func (c *loaderYAMLConfig) New() extension.Config {
+	return &loaderYAMLConfig{
+		prefix: c.prefix,
+		onInit: c.onInit,
+	}
+}
+
+func (c *loaderYAMLConfig) Init(scope extension.Scope) error {
+	c.initialized = scope
+	if c.onInit != nil {
+		c.onInit(c)
+	}
+	return nil
+}
+
+func (c *loaderYAMLConfig) FilterNames(extension.Scope) []string {
+	return nil
+}
 
 func writeFile(t *testing.T, dir, name, content string) string {
 	t.Helper()
@@ -113,6 +148,37 @@ func TestHotUpdateConfig_DeniesExtensionChangeEvenWhenBroadlyAllowed(t *testing.
 	err := hotUpdateConfig(conf)
 	require.EqualError(t, err, "hot reload denied: extension configuration changes require restart")
 	require.Same(t, prevIns, instanceOptions)
+}
+
+func TestLoadConfigInitializesClientExtensionFromYAML(t *testing.T) {
+	const prefix = "loader-yaml-extension"
+	extension.UnregisterConfig(prefix)
+	t.Cleanup(func() { extension.UnregisterConfig(prefix) })
+
+	var initialized *loaderYAMLConfig
+	require.NoError(t, extension.RegisterConfig(&loaderYAMLConfig{
+		prefix: prefix,
+		onInit: func(config *loaderYAMLConfig) {
+			initialized = config
+		},
+	}))
+
+	conf := NewLoaderConf(WithBytes([]byte(`dubbo:
+  extensions:
+    loader-yaml-extension:
+      consumer:
+        value: 7
+`)))
+	instanceOptions, err := loadInstanceOptions(conf)
+	require.NoError(t, err)
+	require.NoError(t, instanceOptions.init())
+
+	instance := &Instance{insOpts: instanceOptions}
+	_, err = instance.NewClient()
+	require.NoError(t, err)
+	require.NotNil(t, initialized)
+	assert.Equal(t, 7, initialized.Value)
+	assert.Equal(t, extension.ClientScope, initialized.initialized)
 }
 
 func TestHotUpdateConfig_AllowsWithCustomPrefix(t *testing.T) {

@@ -122,7 +122,44 @@ func TestWithExtensionBuildsServerConfigAndMergesFilter(t *testing.T) {
 	require.NotNil(t, initialized)
 	assert.Equal(t, 9, initialized.Value)
 	assert.Equal(t, extension.ServerScope, initialized.initialized)
-	assert.Equal(t, "explicit,"+filterName, srv.cfg.Provider.Filter)
+	assert.Equal(t, "explicit", srv.cfg.Provider.Filter)
+
+	svcOpts := defaultServiceOptions()
+	svcOpts.Provider = srv.cfg.Provider
+	svcOpts.Application = srv.cfg.Application
+	svcOpts.Registries = srv.cfg.Registries
+	svcOpts.Protocols = srv.cfg.Protocols
+	require.NoError(t, svcOpts.init(srv, WithInterface("com.example.ServerEntry")))
+	assert.Equal(t, "explicit,"+filterName, svcOpts.getUrlMap().Get(constant.ServiceFilterKey))
+}
+
+func TestWithExtensionPreservesDefaultServerFilters(t *testing.T) {
+	const prefix = "server-default-filter"
+	const filterName = "server-entry-filter"
+	extension.UnregisterConfig(prefix)
+	extension.UnregisterFilter(filterName)
+	t.Cleanup(func() {
+		extension.UnregisterConfig(prefix)
+		extension.UnregisterFilter(filterName)
+	})
+
+	require.NoError(t, extension.RegisterConfig(&serverEntryConfig{
+		prefix:        prefix,
+		requiredScope: extension.ServerScope,
+	}))
+	extension.SetFilter(filterName, func() filter.Filter { return nil })
+
+	srv, err := NewServer(WithExtension(serverEntryOption{prefix: prefix, value: 1}))
+	require.NoError(t, err)
+
+	svcOpts := defaultServiceOptions()
+	svcOpts.Provider = srv.cfg.Provider
+	svcOpts.Application = srv.cfg.Application
+	svcOpts.Registries = srv.cfg.Registries
+	svcOpts.Protocols = srv.cfg.Protocols
+	require.NoError(t, svcOpts.init(srv, WithInterface("com.example.ServerDefaultFilter")))
+	assert.Equal(t, constant.DefaultServiceFilters+","+filterName,
+		svcOpts.getUrlMap().Get(constant.ServiceFilterKey))
 }
 
 func TestWithExtensionRejectsUnsupportedServerScope(t *testing.T) {
@@ -162,7 +199,7 @@ func TestWithExtensionHonorsExplicitFilterSuppression(t *testing.T) {
 		WithExtension(serverEntryOption{prefix: prefix, value: 1}),
 	)
 	require.NoError(t, err)
-	assert.Empty(t, srv.cfg.Provider.Filter)
+	assert.Equal(t, "-"+filterName, srv.cfg.Provider.Filter)
 }
 
 // Test defaultServerOptions

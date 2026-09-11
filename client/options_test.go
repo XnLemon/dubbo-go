@@ -143,6 +143,14 @@ func TestWithExtensionBuildsClientConfigAndMergesFilter(t *testing.T) {
 	assert.Equal(t, 3, initialized.Commands["greet.GreetService:::Greet"]["timeout"])
 	assert.Equal(t, extension.ClientScope, initialized.initialized)
 	assert.Equal(t, "explicit,"+filterName, cli.cliOpts.overallReference.Filter)
+	refOpts := &ReferenceOptions{
+		Reference:   cli.cliOpts.overallReference,
+		Application: cli.cliOpts.Application,
+		Metrics:     cli.cliOpts.Metrics,
+		Otel:        cli.cliOpts.Otel,
+	}
+	assert.Equal(t, constant.DefaultReferenceFilters+",explicit,"+filterName,
+		refOpts.getURLMap().Get(constant.ReferenceFilterKey))
 }
 
 func TestWithExtensionRejectsUnsupportedClientScope(t *testing.T) {
