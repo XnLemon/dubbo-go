@@ -169,11 +169,11 @@ func TestLoadConfigInitializesClientExtensionFromYAML(t *testing.T) {
       consumer:
         value: 7
 `)))
-	instanceOptions, err := loadInstanceOptions(conf)
+	loadedOptions, err := loadInstanceOptions(conf)
 	require.NoError(t, err)
-	require.NoError(t, instanceOptions.init())
+	require.NoError(t, loadedOptions.init())
 
-	instance := &Instance{insOpts: instanceOptions}
+	instance := &Instance{insOpts: loadedOptions}
 	_, err = instance.NewClient()
 	require.NoError(t, err)
 	require.NotNil(t, initialized)

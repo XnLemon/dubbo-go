@@ -18,6 +18,7 @@
 package extension
 
 import (
+	"errors"
 	"fmt"
 	"reflect"
 	"sort"
@@ -127,13 +128,35 @@ func initializeConfigs(registered map[string]Config, rawByPrefix map[string]map[
 		filterNames = append(filterNames, config.filterNames...)
 	}
 
+	initialized := make([]preparedConfig, 0, len(prepared))
 	for _, config := range prepared {
+		initialized = append(initialized, config)
 		if err := config.config.Init(scope); err != nil {
-			return nil, fmt.Errorf("extension %q: initialize scope %d: %w", config.prefix, scope, err)
+			initErr := fmt.Errorf("extension %q: initialize scope %d: %w", config.prefix, scope, err)
+			if rollbackErr := rollbackConfigs(initialized, scope); rollbackErr != nil {
+				return nil, errors.Join(initErr, rollbackErr)
+			}
+			return nil, initErr
 		}
 	}
 
 	return filterNames, nil
+}
+
+func rollbackConfigs(configs []preparedConfig, scope Scope) error {
+	var rollbackErr error
+	for index := len(configs) - 1; index >= 0; index-- {
+		config := configs[index]
+		rollbacker, ok := config.config.(Rollbacker)
+		if !ok {
+			continue
+		}
+		if err := rollbacker.Rollback(scope); err != nil {
+			rollbackErr = errors.Join(rollbackErr,
+				fmt.Errorf("extension %q: rollback scope %d: %w", config.prefix, scope, err))
+		}
+	}
+	return rollbackErr
 }
 
 type preparedConfig struct {
@@ -219,61 +242,78 @@ func collectFilterNames(config Config, prefix string, scope Scope, seenFilters m
 func MergeFilterNames(existing string, additions []string) string {
 	result := make([]string, 0)
 	seen := make(map[string]struct{})
-	disabled := make(map[string]struct{})
-	added := make(map[string]struct{}, len(additions))
-	for _, raw := range additions {
-		name := strings.TrimSpace(raw)
-		if name != "" {
-			added[name] = struct{}{}
+	added := filterNameSet(additions)
+	disabled := disabledFilterNameSet(existing)
+	for raw := range strings.SplitSeq(existing, ",") {
+		name, ok := mergeExistingFilterName(raw, added, disabled)
+		if ok {
+			appendUniqueFilterName(&result, seen, name)
 		}
 	}
-	for name := range strings.SplitSeq(existing, ",") {
-		name = strings.TrimSpace(name)
+
+	for _, raw := range additions {
+		name := strings.TrimSpace(raw)
+		if canAppendFilterName(name, disabled, seen) {
+			appendUniqueFilterName(&result, seen, name)
+		}
+	}
+
+	return strings.Join(result, ",")
+}
+
+func filterNameSet(names []string) map[string]struct{} {
+	set := make(map[string]struct{}, len(names))
+	for _, raw := range names {
+		name := strings.TrimSpace(raw)
+		if name != "" {
+			set[name] = struct{}{}
+		}
+	}
+	return set
+}
+
+func disabledFilterNameSet(existing string) map[string]struct{} {
+	disabled := make(map[string]struct{})
+	for raw := range strings.SplitSeq(existing, ",") {
+		name := strings.TrimSpace(raw)
 		if after, ok := strings.CutPrefix(name, "-"); ok {
 			disabled[after] = struct{}{}
 		}
 	}
+	return disabled
+}
 
-	appendExisting := func(raw string) {
-		name := strings.TrimSpace(raw)
-		if name == "" {
-			return
-		}
-		if after, ok := strings.CutPrefix(name, "-"); ok {
-			if _, suppressesAddition := added[after]; suppressesAddition {
-				return
-			}
-		} else if _, suppressed := disabled[name]; suppressed {
-			if _, isAddition := added[name]; isAddition {
-				return
-			}
-		}
-		if _, ok := seen[name]; ok {
-			return
-		}
-		seen[name] = struct{}{}
-		result = append(result, name)
+func mergeExistingFilterName(raw string, added, disabled map[string]struct{}) (string, bool) {
+	name := strings.TrimSpace(raw)
+	if name == "" {
+		return "", false
 	}
-	for name := range strings.SplitSeq(existing, ",") {
-		appendExisting(name)
+	if after, ok := strings.CutPrefix(name, "-"); ok {
+		_, suppressesAddition := added[after]
+		return name, !suppressesAddition
 	}
+	_, suppressed := disabled[name]
+	_, isAddition := added[name]
+	return name, !suppressed || !isAddition
+}
 
-	for _, raw := range additions {
-		name := strings.TrimSpace(raw)
-		if name == "" {
-			continue
-		}
-		if _, ok := disabled[name]; ok {
-			continue
-		}
-		if _, ok := seen[name]; ok {
-			continue
-		}
-		seen[name] = struct{}{}
-		result = append(result, name)
+func canAppendFilterName(name string, disabled, seen map[string]struct{}) bool {
+	if name == "" {
+		return false
 	}
+	if _, ok := disabled[name]; ok {
+		return false
+	}
+	_, ok := seen[name]
+	return !ok
+}
 
-	return strings.Join(result, ",")
+func appendUniqueFilterName(result *[]string, seen map[string]struct{}, name string) {
+	if _, ok := seen[name]; ok {
+		return
+	}
+	seen[name] = struct{}{}
+	*result = append(*result, name)
 }
 
 func selectRawConfig(value any, scope Scope) (map[string]any, bool, error) {

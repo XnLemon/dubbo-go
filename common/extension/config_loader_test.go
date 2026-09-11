@@ -108,6 +108,40 @@ func (c *initTrackingConfig) FilterNames(Scope) []string {
 	return c.filterNames
 }
 
+type rollbackTrackingConfig struct {
+	prefix      string
+	events      *[]string
+	initErr     error
+	rollbackErr error
+}
+
+func (c *rollbackTrackingConfig) Prefix() string {
+	return c.prefix
+}
+
+func (c *rollbackTrackingConfig) New() Config {
+	return &rollbackTrackingConfig{
+		prefix:      c.prefix,
+		events:      c.events,
+		initErr:     c.initErr,
+		rollbackErr: c.rollbackErr,
+	}
+}
+
+func (c *rollbackTrackingConfig) Init(Scope) error {
+	*c.events = append(*c.events, c.prefix+":init")
+	return c.initErr
+}
+
+func (c *rollbackTrackingConfig) Rollback(Scope) error {
+	*c.events = append(*c.events, c.prefix+":rollback")
+	return c.rollbackErr
+}
+
+func (c *rollbackTrackingConfig) FilterNames(Scope) []string {
+	return nil
+}
+
 func TestInitializeAppliesRoleYAMLThenOptions(t *testing.T) {
 	const prefix = "loader-contract"
 	const filterName = "loader-test-filter"
@@ -206,6 +240,45 @@ func TestInitializeValidatesAllConfigsBeforeInit(t *testing.T) {
 	require.Error(t, err)
 	assert.Zero(t, firstInitCount)
 	assert.Zero(t, invalidInitCount)
+}
+
+func TestInitializeRollsBackStartedConfigsInReverseOrder(t *testing.T) {
+	const (
+		firstPrefix  = "aaa-rollback-tracking"
+		failedPrefix = "bbb-rollback-tracking"
+		lastPrefix   = "ccc-rollback-tracking"
+	)
+	for _, prefix := range []string{firstPrefix, failedPrefix, lastPrefix} {
+		UnregisterConfig(prefix)
+	}
+	t.Cleanup(func() {
+		for _, prefix := range []string{firstPrefix, failedPrefix, lastPrefix} {
+			UnregisterConfig(prefix)
+		}
+	})
+
+	events := make([]string, 0, 4)
+	initErr := errors.New("init failed")
+	for _, config := range []Config{
+		&rollbackTrackingConfig{prefix: firstPrefix, events: &events},
+		&rollbackTrackingConfig{prefix: failedPrefix, events: &events, initErr: initErr},
+		&rollbackTrackingConfig{prefix: lastPrefix, events: &events},
+	} {
+		require.NoError(t, RegisterConfig(config))
+	}
+
+	_, err := Initialize(map[string]any{
+		firstPrefix:  map[string]any{"consumer": map[string]any{}},
+		failedPrefix: map[string]any{"consumer": map[string]any{}},
+		lastPrefix:   map[string]any{"consumer": map[string]any{}},
+	}, nil, ClientScope)
+	require.ErrorIs(t, err, initErr)
+	assert.Equal(t, []string{
+		firstPrefix + ":init",
+		failedPrefix + ":init",
+		failedPrefix + ":rollback",
+		firstPrefix + ":rollback",
+	}, events)
 }
 
 func TestInitializeInstanceScopeSkipsFilterValidation(t *testing.T) {

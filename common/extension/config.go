@@ -46,10 +46,22 @@ func (s Scope) valid() bool {
 type Config interface {
 	Prefix() string
 	New() Config
+	// Init initializes the extension for one concrete lifecycle scope. If it
+	// returns an error after acquiring resources, the implementation must leave
+	// those resources released; Initialize invokes Rollbacker when available
+	// for cleanup shared with later extension failures.
 	Init(scope Scope) error
 	// FilterNames contributes filters for client and server lifecycles. It is
 	// not called for InstanceScope.
 	FilterNames(scope Scope) []string
+}
+
+// Rollbacker is an optional failure cleanup contract for an extension whose
+// Init has started. Initialize calls Rollback in reverse order when a later
+// extension fails during the same initialization attempt. Implementations
+// should make Rollback idempotent and release resources acquired by Init.
+type Rollbacker interface {
+	Rollback(scope Scope) error
 }
 
 // Option applies typed configuration to one extension. The core groups
