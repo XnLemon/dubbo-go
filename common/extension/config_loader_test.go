@@ -304,6 +304,7 @@ func TestInitializeInstanceScopeSkipsFilterValidation(t *testing.T) {
 func TestMergeFilterNamesHonorsExplicitSuppression(t *testing.T) {
 	assert.Equal(t, "a,b", MergeFilterNames("-extension,a,a", []string{"extension", "b", "b"}))
 	assert.Empty(t, MergeFilterNames("extension,-extension", []string{"extension"}))
-	assert.Equal(t, "-default,a,extension", MergeFilterNames("-default,a", []string{"extension"}))
+	assert.Equal(t, "a,extension", MergeFilterNames("-default,a", []string{"extension"}))
+	assert.Equal(t, "b", MergeFilterNames("a,-a,b", nil))
 	assert.Empty(t, MergeFilterNames("", nil))
 }

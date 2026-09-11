@@ -200,6 +200,45 @@ func TestWithExtensionHonorsExplicitFilterSuppression(t *testing.T) {
 	)
 	require.NoError(t, err)
 	assert.Equal(t, "-"+filterName, srv.cfg.Provider.Filter)
+
+	svcOpts := defaultServiceOptions()
+	svcOpts.Provider = srv.cfg.Provider
+	svcOpts.Application = srv.cfg.Application
+	svcOpts.Registries = srv.cfg.Registries
+	svcOpts.Protocols = srv.cfg.Protocols
+	require.NoError(t, svcOpts.init(srv, WithInterface("com.example.ServerEntrySuppressed")))
+	assert.Empty(t, svcOpts.getUrlMap().Get(constant.ServiceFilterKey))
+}
+
+func TestServerFilterDropsUnmatchedSuppressionMarker(t *testing.T) {
+	const prefix = "server-unmatched-suppression"
+	const filterName = "server-entry-filter"
+	extension.UnregisterConfig(prefix)
+	extension.UnregisterFilter(filterName)
+	t.Cleanup(func() {
+		extension.UnregisterConfig(prefix)
+		extension.UnregisterFilter(filterName)
+	})
+
+	require.NoError(t, extension.RegisterConfig(&serverEntryConfig{
+		prefix:        prefix,
+		requiredScope: extension.ServerScope,
+	}))
+	extension.SetFilter(filterName, func() filter.Filter { return nil })
+
+	srv, err := NewServer(
+		WithServerFilter("-server-entry-unmatched-filter"),
+		WithExtension(serverEntryOption{prefix: prefix, value: 1}),
+	)
+	require.NoError(t, err)
+
+	svcOpts := defaultServiceOptions()
+	svcOpts.Provider = srv.cfg.Provider
+	svcOpts.Application = srv.cfg.Application
+	svcOpts.Registries = srv.cfg.Registries
+	svcOpts.Protocols = srv.cfg.Protocols
+	require.NoError(t, svcOpts.init(srv, WithInterface("com.example.ServerUnmatchedSuppression")))
+	assert.Equal(t, filterName, svcOpts.getUrlMap().Get(constant.ServiceFilterKey))
 }
 
 // Test defaultServerOptions

@@ -31,7 +31,9 @@ import (
 
 // Initialize creates and initializes the extensions active for one lifecycle
 // scope. rawConfigs is the map below dubbo.extensions, while options contains
-// typed options declared by the corresponding entry point.
+// typed options declared by the corresponding entry point. rawConfigs may be
+// nil; when it contains an active prefix, that prefix must be registered in the
+// running binary and unknown prefixes are rejected.
 //
 // Each active extension receives a fresh Config. Its configuration precedence
 // is defaults from Config.New, selected YAML, typed options, and finally
@@ -238,7 +240,9 @@ func collectFilterNames(config Config, prefix string, scope Scope, seenFilters m
 
 // MergeFilterNames appends extension filters to an existing filter list while
 // preserving declaration order and honoring an explicit -name suppression.
-// Existing duplicate entries are removed as part of the merge.
+// Existing duplicate entries are removed as part of the merge. A suppression
+// marker is retained only when the named filter is registered and may need to
+// be interpreted by a later consumer-side default merge.
 func MergeFilterNames(existing string, additions []string) string {
 	result := make([]string, 0)
 	seen := make(map[string]struct{})
@@ -290,11 +294,13 @@ func mergeExistingFilterName(raw string, added, disabled map[string]struct{}) (s
 	}
 	if after, ok := strings.CutPrefix(name, "-"); ok {
 		_, suppressesAddition := added[after]
-		return name, !suppressesAddition
+		if suppressesAddition || !HasFilter(after) {
+			return "", false
+		}
+		return name, true
 	}
 	_, suppressed := disabled[name]
-	_, isAddition := added[name]
-	return name, !suppressed || !isAddition
+	return name, !suppressed
 }
 
 func canAppendFilterName(name string, disabled, seen map[string]struct{}) bool {
